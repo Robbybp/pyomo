@@ -128,9 +128,10 @@ class InteriorPointSolver(object):
             primal_inf, dual_inf, complimentarity_inf = \
                     self.check_convergence(interface=interface, 
                                            barrier=barrier_parameter)
-            if max(primal_inf, 
-                   dual_inf, 
-                   complimentarity_inf) <= 0.1 * barrier_parameter:
+            if max(primal_inf, dual_inf, complimentarity_inf) \
+                    <= 0.1 * barrier_parameter:
+                # This comparison is made with barrier problem infeasibility.
+                # Sometimes have trouble getting dual infeasibility low enough
                 barrier_parameter = max(minimum_barrier_parameter,
                                         min(0.5*barrier_parameter,
                                             barrier_parameter**1.5))
