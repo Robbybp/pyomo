@@ -15,7 +15,7 @@ class InteriorPointSolver(object):
     def __init__(self, linear_solver, max_iter=100, tol=1e-8, 
             regularize_kkt=False):
         self.linear_solver = linear_solver
-        self.max_iter = 100
+        self.max_iter = max_iter
         self.tol = tol
         self.regularize_kkt = regularize_kkt
 
