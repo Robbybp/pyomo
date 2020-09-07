@@ -16,6 +16,7 @@ import pyutilib.th as unittest
 from pyomo.common import DeveloperError
 import pyomo.core.base._pyomo
 from pyomo.core.base.block import generate_cuid_names
+from pyomo.core.base.component import get_location_of_coordinate_set
 from pyomo.environ import *
 
 
@@ -532,6 +533,106 @@ class TestComponentUID(unittest.TestCase):
             assert repr(ComponentUID(obj)) == cuids[obj]
             del cuids[obj]
         self.assertEqual(len(cuids), 0)
+
+    def test_wildcard_set(self):
+        m = ConcreteModel()
+        m.s1 = Set(initialize=[1,2,3])
+        m.s2 = Set(initialize=['a','b'])
+        m.s3 = Set(initialize=[4.0, 4.5, 5.0])
+        m.v = Var(m.s1)
+        m.u = Var(m.s1, m.s2)
+        m.w = Var(m.s1, m.s3, m.s2)
+
+        v_uid = ComponentUID(m.v[1], wildcard_set=m.s1)
+        self.assertEqual(str(v_uid), 'v[*]')
+        id_set = set(id(comp) for comp in v_uid.list_components(m))
+        v_list = list(m.v[:])
+        assert len(v_list) == len(id_set)
+        for var in v_list:
+            assert id(var) in id_set
+
+        u_uid = ComponentUID(m.u[1,'a'], wildcard_set=m.s1)
+        self.assertEqual(str(u_uid), 'u[*,a]')
+        id_set = set(id(comp) for comp in u_uid.list_components(m))
+        u_list = list(m.u[:,'a'])
+        assert len(u_list) == len(id_set)
+        for var in u_list:
+            assert id(var) in id_set
+
+        u_uid = ComponentUID(m.u[1,'a'], wildcard_set=m.s2)
+        self.assertEqual(str(u_uid), 'u[1,*]')
+        id_set = set(id(comp) for comp in u_uid.list_components(m))
+        u_list = list(m.u[1,:])
+        assert len(u_list) == len(id_set)
+        for var in u_list:
+            assert id(var) in id_set
+
+        w_uid = ComponentUID(m.w[1,4.5,'b'], wildcard_set=m.s3)
+        self.assertEqual(str(w_uid), 'w[1,*,b]')
+        id_set = set(id(comp) for comp in w_uid.list_components(m))
+        w_list = list(m.w[1,:,'b'])
+        assert len(w_list) == len(id_set)
+        for var in w_list:
+            assert id(var) in id_set
+
+        @m.Block(m.s1, m.s2)
+        def b(b, s1, s2):
+            b.x = Var()
+            b.y = Var(m.s3)
+            b.z = Var(m.s1, m.s2)
+
+        x_uid = ComponentUID(m.b[1,'a'].x, wildcard_set=m.s1)
+        self.assertEqual(str(x_uid), 'b[*,a].x')
+        id_set = set(id(comp) for comp in x_uid.list_components(m))
+        x_list = list(m.b[:,'a'].x)
+        assert len(x_list) == len(id_set)
+        for var in x_list:
+            assert id(var) in id_set
+
+        y_uid = ComponentUID(m.b[1,'a'].y[4], wildcard_set=m.s3)
+        self.assertEqual(str(y_uid), 'b[1,a].y[*]')
+        id_set = set(id(comp) for comp in y_uid.list_components(m))
+        y_list = list(m.b[1,'a'].y[:])
+        assert len(y_list) == len(id_set)
+        for var in y_list:
+            assert id(var) in id_set
+
+        z_uid = ComponentUID(m.b[1,'a'].z[2,'b'], wildcard_set=m.s2)
+        self.assertEqual(str(z_uid), 'b[1,*].z[2,*]')
+        id_set = set(id(comp) for comp in z_uid.list_components(m))
+        z_list = list(m.b[1,:].z[2,:])
+        assert len(z_list) == len(id_set)
+        for var in z_list:
+            assert id(var) in id_set
+
+
+class TestGetLocationOfCoordinateSet(unittest.TestCase):
+
+    def test_get_location(self):
+        m = ConcreteModel()
+        m.s1 = Set(initialize=[1,2,3])
+        m.s2 = Set(initialize=[('a',1), ('b',2)])
+        m.s3 = Set(initialize=[('a',1,0), ('b',2,1)])
+        m.v1 = Var(m.s1)
+        m.v2 = Var(m.s1, m.s2)
+        m.v121 = Var(m.s1, m.s2, m.s1)
+        m.v3 = Var(m.s3, m.s1, m.s2)
+    
+        self.assertEqual(
+                get_location_of_coordinate_set(m.v1.index_set(), m.s1),
+                0)
+        self.assertEqual(
+                get_location_of_coordinate_set(m.v2.index_set(), m.s1),
+                0)
+        self.assertEqual(
+                get_location_of_coordinate_set(m.v3.index_set(), m.s1),
+                3)
+    
+        with self.assertRaises(ValueError):
+            get_location_of_coordinate_set(m.v1.index_set(), m.s2)
+        with self.assertRaises(ValueError):
+            get_location_of_coordinate_set(m.v121.index_set(), m.s1)
+
 
 class TestEnviron(unittest.TestCase):
 
