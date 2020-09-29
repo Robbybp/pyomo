@@ -88,8 +88,13 @@ def generate_time_indexed_block_slices(block, time, ctype):
             for idx in v:
                 yield _slice.component(_name)[idx]
         
+class NoCtype:
+    # Dummy class to use as a void ctype, as None could be a
+    # desired option
+    # TODO: standarized NotSpecified class
+    pass
 
-def flatten_dae_components(model, time, ctype):
+def flatten_dae_components(model, time, ctype, new_ctype=NoCtype):
     """
     This function takes in a (hierarchical, block-structured) Pyomo
     model and a `ContinuousSet` and returns two lists of "flattened"
@@ -115,6 +120,9 @@ def flatten_dae_components(model, time, ctype):
     """
     assert time.model() is model.model()
 
+    if new_ctype is NoCtype:
+        new_ctype = ctype
+
     block_queue = [model]
     regular_comps = []
     time_indexed_comps = []
@@ -123,7 +131,7 @@ def flatten_dae_components(model, time, ctype):
         b_sets = b.index_set().subsets()
         if time in b_sets:
             for _slice in generate_time_indexed_block_slices(b, time, ctype):
-                time_indexed_comps.append(Reference(_slice))
+                time_indexed_comps.append(Reference(_slice, ctype=new_ctype))
             continue
         for blkdata in b.values():
             block_queue.extend(
@@ -135,7 +143,8 @@ def flatten_dae_components(model, time, ctype):
                 v_sets = v.index_set().subsets()
                 if time in v_sets:
                     for _slice in generate_time_only_slices(v, time):
-                        time_indexed_comps.append(Reference(_slice))
+                        time_indexed_comps.append(
+                                Reference(_slice, ctype=new_ctype))
                 else:
                     regular_comps.extend(v.values())
 
