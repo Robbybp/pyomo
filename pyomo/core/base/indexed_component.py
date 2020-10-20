@@ -284,6 +284,8 @@ class IndexedComponent(Component):
             # user iterates over the set when the _data dict is empty.
             #
             return self._data.__iter__()
+        elif type(self._data) is not dict:
+            return self._data.__iter__()
         elif len(self._data) == len(self._index):
             #
             # If the data is dense then return the index iterator.

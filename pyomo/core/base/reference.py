@@ -155,7 +155,6 @@ class _ReferenceDict(collections_MutableMapping):
     """
     def __init__(self, component_slice):
         self._slice = component_slice
-        self._len = None
 
     def __contains__(self, key):
         try:
@@ -252,9 +251,7 @@ class _ReferenceDict(collections_MutableMapping):
         return self._slice.wildcard_keys()
 
     def __len__(self):
-        if self._len is None:
-            self._len = sum(1 for i in self._slice)
-        return self._len
+        return sum(1 for i in self._slice)
 
     def iteritems(self):
         """Return the wildcard, value tuples for this ReferenceDict
