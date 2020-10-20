@@ -256,6 +256,10 @@ class IndexedComponent(Component):
         """Return true if this component is indexed"""
         return self._index is not UnindexedComponent_set
 
+    def is_reference(self):
+        """ Return True if this component is a reference. """
+        return self._data is not None and type(self._data) is not dict
+
     def dim(self):
         """Return the dimension of the index"""
         if not self.is_indexed():
@@ -284,7 +288,7 @@ class IndexedComponent(Component):
             # user iterates over the set when the _data dict is empty.
             #
             return self._data.__iter__()
-        elif type(self._data) is not dict:
+        elif self.is_reference():
             return self._data.__iter__()
         elif len(self._data) == len(self._index):
             #
