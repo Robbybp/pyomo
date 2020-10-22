@@ -534,104 +534,349 @@ class TestComponentUID(unittest.TestCase):
             del cuids[obj]
         self.assertEqual(len(cuids), 0)
 
-    def test_wildcard_set(self):
+    def _slice_model(self):
         m = ConcreteModel()
-        m.s1 = Set(initialize=[1,2,3])
-        m.s2 = Set(initialize=['a','b'])
-        m.s3 = Set(initialize=[4.0, 4.5, 5.0])
-        m.v = Var(m.s1)
-        m.u = Var(m.s1, m.s2)
-        m.w = Var(m.s1, m.s3, m.s2)
 
-        v_uid = ComponentUID(m.v[1], wildcard_set=m.s1)
-        self.assertEqual(str(v_uid), 'v[*]')
-        id_set = set(id(comp) for comp in v_uid.list_components(m))
-        v_list = list(m.v[:])
-        assert len(v_list) == len(id_set)
-        for var in v_list:
-            assert id(var) in id_set
+        m.d1_1 = Set(initialize=[1,2,3])
+        m.d1_2 = Set(initialize=['a','b','c'])
+        m.d1_3 = Set(initialize=[1.1,1.2,1.3])
+        m.d2 = Set(initialize=[('a',1), ('b',2)])
+        m.dn = Set(initialize=[('c',3), ('d',4,5)], dimen=None)
 
-        u_uid = ComponentUID(m.u[1,'a'], wildcard_set=m.s1)
-        self.assertEqual(str(u_uid), 'u[*,a]')
-        id_set = set(id(comp) for comp in u_uid.list_components(m))
-        u_list = list(m.u[:,'a'])
-        assert len(u_list) == len(id_set)
-        for var in u_list:
-            assert id(var) in id_set
+        @m.Block()
+        def b(b):
 
-        u_uid = ComponentUID(m.u[1,'a'], wildcard_set=m.s2)
-        self.assertEqual(str(u_uid), 'u[1,*]')
-        id_set = set(id(comp) for comp in u_uid.list_components(m))
-        u_list = list(m.u[1,:])
-        assert len(u_list) == len(id_set)
-        for var in u_list:
-            assert id(var) in id_set
+            b.b = Block()
+            
+            @b.Block(m.d1_1)
+            def b1(b1, i):
+                b1.v = Var()
+                b1.v1 = Var(m.d1_3)
+                b1.v2 = Var(m.d1_1, m.d1_2)
+                b1.vn = Var(m.dn, m.d1_2)
 
-        w_uid = ComponentUID(m.w[1,4.5,'b'], wildcard_set=m.s3)
-        self.assertEqual(str(w_uid), 'w[1,*,b]')
-        id_set = set(id(comp) for comp in w_uid.list_components(m))
-        w_list = list(m.w[1,:,'b'])
-        assert len(w_list) == len(id_set)
-        for var in w_list:
-            assert id(var) in id_set
+            @b.Block(m.d1_1, m.d1_2)
+            def b2(b2, i, j):
+                b2.v = Var()
+                b2.v1 = Var(m.d1_3)
+                b2.v2 = Var(m.d1_1, m.d1_2)
+                b2.vn = Var(m.d1_1, m.dn, m.d1_2)
 
-        @m.Block(m.s1, m.s2)
-        def b(b, s1, s2):
-            b.x = Var()
-            b.y = Var(m.s3)
-            b.z = Var(m.s1, m.s2)
+            @b.Block(m.d1_3, m.d2)
+            def b3(b3, i, j, k):
+                b3.v = Var()
+                b3.v1 = Var(m.d1_3)
+                b3.v2 = Var(m.d1_1, m.d1_2)
+                b3.vn = Var(m.d1_1, m.dn, m.d2)
 
-        x_uid = ComponentUID(m.b[1,'a'].x, wildcard_set=m.s1)
-        self.assertEqual(str(x_uid), 'b[*,a].x')
-        id_set = set(id(comp) for comp in x_uid.list_components(m))
-        x_list = list(m.b[:,'a'].x)
-        assert len(x_list) == len(id_set)
-        for var in x_list:
-            assert id(var) in id_set
+            # Don't think I can define a dim-None Block with
+            # a rule unless normalize_index.flatten is False.
+            b.bn = Block(m.d1_2, m.dn, m.d2)
+            # NOTE: These blocks are only defined for 'a', ('a',1)
+            # in the first and last "subsets"
+            b.bn['a','c',3,'a',1].v = Var()
+            b.bn['a','c',3,'a',1].v1 = Var(m.d1_3)
+            b.bn['a','c',3,'a',1].v2 = Var(m.d1_1, m.d1_2)
+            b.bn['a','c',3,'a',1].vn = Var(m.d1_1, m.dn, m.d2)
+            b.bn['a','d',4,5,'a',1].v = Var()
+            b.bn['a','d',4,5,'a',1].v1 = Var(m.d1_3)
+            b.bn['a','d',4,5,'a',1].v2 = Var(m.d1_1, m.d1_2)
+            b.bn['a','d',4,5,'a',1].vn = Var(m.d1_1, m.dn, m.d2)
 
-        y_uid = ComponentUID(m.b[1,'a'].y[4], wildcard_set=m.s3)
-        self.assertEqual(str(y_uid), 'b[1,a].y[*]')
-        id_set = set(id(comp) for comp in y_uid.list_components(m))
-        y_list = list(m.b[1,'a'].y[:])
-        assert len(y_list) == len(id_set)
-        for var in y_list:
-            assert id(var) in id_set
+        return m
 
-        z_uid = ComponentUID(m.b[1,'a'].z[2,'b'], wildcard_set=m.s2)
-        self.assertEqual(str(z_uid), 'b[1,*].z[2,*]')
-        id_set = set(id(comp) for comp in z_uid.list_components(m))
-        z_list = list(m.b[1,:].z[2,:])
-        assert len(z_list) == len(id_set)
-        for var in z_list:
-            assert id(var) in id_set
-
-
-class TestGetLocationOfCoordinateSet(unittest.TestCase):
-
-    def test_get_location(self):
-        m = ConcreteModel()
-        m.s1 = Set(initialize=[1,2,3])
-        m.s2 = Set(initialize=[('a',1), ('b',2)])
-        m.s3 = Set(initialize=[('a',1,0), ('b',2,1)])
-        m.v1 = Var(m.s1)
-        m.v2 = Var(m.s1, m.s2)
-        m.v121 = Var(m.s1, m.s2, m.s1)
-        m.v3 = Var(m.s3, m.s1, m.s2)
-    
+    def assertListSameComponents(self, m, cuid1, cuid2):
+        self.assertTrue(cuid1.list_components(m))
         self.assertEqual(
-                get_location_of_coordinate_set(m.v1.index_set(), m.s1),
-                0)
+                len(list(cuid1.list_components(m))),
+                len(list(cuid2.list_components(m)))
+                )
+        for c1, c2 in zip(
+                cuid1.list_components(m),
+                cuid2.list_components(m),
+                ):
+            self.assertIs(c1, c2)
+
+    def test_cuid_from_slice_1(self):
+        m = self._slice_model()
+
+        _slice = m.b[:]
+        cuid_str = ComponentUID('b[*]')
+        cuid = ComponentUID(_slice)
+        self.assertEqual(cuid, cuid_str)
+
+        _slice = m.b.b1[:]
+        cuid_str = ComponentUID('b.b1[*]')
+        cuid = ComponentUID(_slice)
+        self.assertEqual(cuid, cuid_str)
+
+        _slice = m.b.b1[...]
+        cuid_str = ComponentUID('b.b1[**]')
+        cuid = ComponentUID(_slice)
+        self.assertEqual(cuid, cuid_str)
+
+        _slice = m.b.b2[:,'a']
+        cuid_str = ComponentUID('b.b2[*,a]')
+        cuid = ComponentUID(_slice)
+        self.assertEqual(str(cuid), str(cuid_str))
+        # ^ A comparison between CUIDs is not appropriate here.
+        # When constructed from a string, the "type char" of a
+        # fixed index is set to '.', which I believe cannot be
+        # reproduced by constructing with a component.
+        #
+        # Because asserting equality of the string representations
+        # is not as strong as I'd like, I check that the two CUIDs
+        # list the same components from the test model.
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b.b2[...]
+        cuid_str = ComponentUID('b.b2[**]')
+        cuid = ComponentUID(_slice)
+        self.assertEqual(cuid, cuid_str)
+
+        _slice = m.b.b3[1.1,:,2]
+#        cuid_str = ComponentUID('b.b3[1.1,*,2]')
+        cuid = ComponentUID(_slice)
+#        self.assertEqual(str(cuid), str(cuid_str))
+# ComponentUIDs constructed from strings do not behave well
+# when decimal indices are present.
+        components = [m.b.b3[1.1,'b',2]]
+        self.assertTrue(cuid.list_components(m))
         self.assertEqual(
-                get_location_of_coordinate_set(m.v2.index_set(), m.s1),
-                0)
+                len(list(cuid.list_components(m))),
+                len(components),
+                )
+        for c1, c2 in zip(
+                cuid.list_components(m),
+                components,
+                ):
+            self.assertIs(c1, c2)
+
+        _slice = m.b.b3[:,:,'b']
+        cuid_str = ComponentUID('b.b3[*,*,b]')
+        cuid = ComponentUID(_slice)
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        with self.assertRaises(NotImplementedError) as err:
+            # This is not supported due to a limitation with CUIDs
+            _slice = m.b.b3[1.1,...]
+            cuid_str = 'b.b3[1.1,**]' 
+            # What is the correct CUID representation for this kind of slice?
+            cuid = ComponentUID(_slice)
+            self.assertIn('fixed', str(err).lower())
+            self.assertIn('ellipsis', str(err).lower())
+
+        _slice = m.b.b3[...]
+        cuid_str = 'b.b3[**]'
+        cuid = ComponentUID(_slice)
+        self.assertEqual(str(cuid), cuid_str)
+
+        _slice = m.b.bn['a',:,:,'a',1]
+        cuid_str = ComponentUID('b.bn[a,*,*,a,1]')
+        cuid = ComponentUID(_slice)
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b.bn['a','c',3,:,:]
+        cuid_str = ComponentUID('b.bn[a,c,3,*,*]')
+        cuid = ComponentUID(_slice)
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b.bn[...]
+        cuid_str = ComponentUID('b.bn[**]')
+        cuid = ComponentUID(_slice)
+        self.assertEqual(cuid, cuid_str)
+        # No room for type interpretation here, so CUIDs can be compared
+        # directly.
+
+    def test_cuid_from_slice_2(self):
+        m = self._slice_model()
+
+        _slice = m.b[:].b
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b[*].b')
+        self.assertEqual(cuid, cuid_str)
+
+        _slice = m.b[:].b1[:].v
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b[*].b1[*].v')
+        self.assertEqual(cuid, cuid_str)
+
+        _slice = m.b.b2[2,:].v
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.b2[2,*].v')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b.b2[2,:].v1[:]
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.b2[2,*].v1[*]')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b.b2[2,:].v1[1.1]
+        cuid = ComponentUID(_slice)
+#        cuid_str = ComponentUID('b.b2[2,*].v1[1.1]')
+#        self.assertEqual(str(cuid), str(cuid_str))
+# ComponentUIDs constructed from strings don't work well
+# with decimal indices.
+        _slice = m.b.b2[2,:].v1[1.1]
+        components = list(_slice)
+        self.assertTrue(cuid.list_components(m))
         self.assertEqual(
-                get_location_of_coordinate_set(m.v3.index_set(), m.s1),
-                3)
-    
-        with self.assertRaises(ValueError):
-            get_location_of_coordinate_set(m.v1.index_set(), m.s2)
-        with self.assertRaises(ValueError):
-            get_location_of_coordinate_set(m.v121.index_set(), m.s1)
+                len(list(cuid.list_components(m))),
+                len(components),
+                )
+        for c1, c2 in zip(
+                cuid.list_components(m),
+                components,
+                ):
+            self.assertIs(c1, c2)
+
+        _slice = m.b.b2[2,:].vn[1,...,:,'b']
+        with self.assertRaisesRegex(NotImplementedError,
+                '.*Fixed.*ellipsis.*'):
+            cuid = ComponentUID(_slice)
+
+        _slice = m.b.b2[2,:].vn[...,'b']
+        with self.assertRaisesRegex(NotImplementedError,
+                '.*Fixed.*ellipsis.*'):
+            cuid = ComponentUID(_slice)
+
+        _slice = m.b.b2[2,:].vn[...,...]
+        with self.assertRaisesRegex(NotImplementedError,
+                '.*Multiple ellipses.*'):
+            cuid = ComponentUID(_slice)
+
+        _slice = m.b.b2[2,:].vn[...]
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.b2[2,*].vn[**]')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b.b2[...].v2[:,'a']
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.b2[**].v2[*,a]')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b.b3[:,'a',:].v1
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.b3[*,a,*].v1')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b.b3[:,'a',:].v2[1,'a']
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.b3[*,a,*].v2[1,a]')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b.b3[:,'a',:].v2[1,:]
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.b3[*,a,*].v2[1,*]')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b.b3[:,'a',:].vn[1,:,:,'a',1]
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.b3[*,a,*].vn[1,*,*,a,1]')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b.bn['a','c',3,:,:].vn[1,:,3,'a',:]
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.bn[a,c,3,*,*].vn[1,*,3,a,*]')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b.bn[...].vn[1,:,3,'a',:]
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.bn[**].vn[1,*,3,a,*]')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b.bn[...].vn
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.bn[**].vn')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b.bn[...].vn[...]
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.bn[**].vn[**]')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+    def test_cuid_from_slice_with_call(self):
+        m = self._slice_model()
+
+        _slice = m.b.component('b2')[:,'a'].v2[1,:]
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.b2[*,a].v2[1,*]')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        # This works as find_component is not in the 
+        # _call_stack of the slice.
+        _slice = m.b.find_component('b2')[:,'a'].v2[1,:]
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.b2[*,a].v2[1,*]')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b[:].component('b2')
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b[*].b2')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b[:].component('b2','b1')
+        with self.assertRaisesRegex(NotImplementedError,
+                '.*multiple arguments.*'):
+            cuid = ComponentUID(_slice)
+
+#        _slice = m.b[:].bad_call('b2')[:,'a']
+#        with self.assertRaisesRegex(NotImplementedError,
+#                'any method other than `component`'):
+#            cuid = ComponentUID(_slice)
+# Unclear how I should test this error. Would need a slice object with
+# a call to attribute other than component in the call stack, but any
+# call to another attribute will get iterated over immediately.
+#
+# Also unclear how I should test for the proper exception if set/del
+# calls are (somehow) present in the call stack.
+
+        _slice = m.b[:].component('b2', kwd=None)
+        with self.assertRaisesRegex(NotImplementedError,
+                '.*call that contains keywords.*'):
+            cuid = ComponentUID(_slice)
+
+        _slice = m.b.b2[:,'a'].component('vn')[:,'c',3,:,:]
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.b2[*,a].vn[*,c,3,*,*]')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b.b2[1,'a'].component('vn')[:,'c',3,:,:]
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.b2[1,a].vn[*,c,3,*,*]')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b.b2[...].component('vn')[:,'c',3,:,:]
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.b2[**].vn[*,c,3,*,*]')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
+
+        _slice = m.b.b2[:,'a'].component('vn')[...]
+        cuid = ComponentUID(_slice)
+        cuid_str = ComponentUID('b.b2[*,a].vn[**]')
+        self.assertEqual(str(cuid), str(cuid_str))
+        self.assertListSameComponents(m, cuid, cuid_str)
 
 
 class TestEnviron(unittest.TestCase):
