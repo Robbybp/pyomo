@@ -47,7 +47,10 @@ def generate_time_only_slices(obj, time):
     # We now form a temporary slice that slices over all the regular
     # indices for a fixed value of the time index.
     tmp_sliced = {i: slice(None) for i in regular_idx}
-    tmp_fixed = {time_idx: time.first()}
+    #tmp_fixed = {time_idx: time.first()}
+    tmp_fixed = {time_idx: time[2]}
+    # It is very common for a Constraint indexed by a ContinuousSet
+    # to be skipped at time.first()...
     tmp_ellipsis = ellipsis_idx
     _slice = IndexedComponent_slice(
         obj, tmp_fixed, tmp_sliced, tmp_ellipsis
