@@ -1439,8 +1439,8 @@ class ComponentUID(object):
                             wildcard_set)
                 for idx, obj in iteritems(c):
                     if obj is component:
-                        yield (c.local_name,) + self._partial_cuid_from_index(idx,
-                                wildcard_location=wildcard_location)
+                        yield (c.local_name,) + self._partial_cuid_from_index(idx)
+                                #wildcard_location=wildcard_location)
                         break
             component = component.parent_block()
 
