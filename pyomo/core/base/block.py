@@ -289,12 +289,13 @@ class PseudoMap(object):
         # list will be walked and sorted before returning the first
         # element.
         sort_order = self._sorted
-        self._sorted = False
-        for x in itervalues(self):
+        try:
+            self._sorted = False
+            for x in itervalues(self):
+                return True
+            return False
+        finally:
             self._sorted = sort_order
-            return True
-        self._sorted = sort_order
-        return False
 
     __bool__ = __nonzero__
 
@@ -1906,8 +1907,9 @@ class Block(ActiveIndexedComponent):
         #  "stack" of pointers to block data (_BlockConstruction.data)
         #  that the individual blocks' add_component() can refer back to
         #  to handle component construction.
-        if data is not None:
-            _BlockConstruction.data[id(self)] = data
+        if data is None:
+            data = {}
+        _BlockConstruction.data[id(self)] = data
         try:
             if self.is_indexed():
                 # We can only populate Blocks with finite indexing sets
@@ -1922,34 +1924,24 @@ class Block(ActiveIndexedComponent):
                 # pseudo-abstract) sub-blocks and then adding them to a
                 # Concrete model block.
                 _idx = next(iter(UnindexedComponent_set))
-                if _idx not in self._data:
-                    # Derived block classes may not follow the scalar
-                    # Block convention of initializing _data to point to
-                    # itself (i.e., they are not set up to support
-                    # Abstract models)
-                    self._data[_idx] = self
-                _block = self
-                for name, obj in iteritems(_block.component_map()):
-                    if not obj._constructed:
-                        if data is None:
-                            _data = None
-                        else:
-                            _data = data.get(name, None)
-                        obj.construct(_data)
-                if self._rule is not None:
-                    obj = apply_indexed_rule(
-                        self, self._rule, _block, _idx, self._options)
-                    if obj is not _block and isinstance(obj, _BlockData):
-                        # If the user returns a block, transfer over
-                        # everything they defined into the empty one we
-                        # created.
-                        _block.transfer_attributes_from(obj)
+                _predefined_components = self.component_map()
+                if _predefined_components:
+                    if _idx not in self._data:
+                        # Derived block classes may not follow the scalar
+                        # Block convention of initializing _data to point to
+                        # itself (i.e., they are not set up to support
+                        # Abstract models)
+                        self._data[_idx] = self
+                    for name, obj in iteritems(_predefined_components):
+                        if not obj._constructed:
+                            obj.construct(data.get(name, None))
+                # Trigger the (normal) intialization of the block
+                self._getitem_when_not_present(_idx)
         finally:
             # We must check if data is still in the dictionary, as
             # scalar blocks will have already removed the entry (as
             # the _data and the component are the same object)
-            if data is not None and id(self) in _BlockConstruction.data:
-                del _BlockConstruction.data[id(self)]
+            _BlockConstruction.data.pop(id(self), None)
             timer.report()
 
     def _pprint_callback(self, ostream, idx, data):
