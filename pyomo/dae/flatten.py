@@ -57,7 +57,8 @@ def generate_time_only_slices(obj, time):
     )
     # For each combination of regular indices, we can generate a single
     # slice over the time index
-    time_sliced = [time_idx]
+    #time_sliced = [time_idx]
+    time_sliced = {time_idx: slice(None)}
     for key in _slice.wildcard_keys():
         if type(key) is not tuple:
             key = (key,)
@@ -91,13 +92,8 @@ def generate_time_indexed_block_slices(block, time, ctype):
             for idx in v:
                 yield _slice.component(_name)[idx]
         
-class NoCtype:
-    # Dummy class to use as a void ctype, as None could be a
-    # desired option
-    # TODO: standarized NotSpecified class
-    pass
 
-def flatten_dae_components(model, time, ctype, new_ctype=NoCtype):
+def flatten_dae_components(model, time, ctype):
     """
     This function takes in a (hierarchical, block-structured) Pyomo
     model and a `ContinuousSet` and returns two lists of "flattened"
@@ -123,9 +119,6 @@ def flatten_dae_components(model, time, ctype, new_ctype=NoCtype):
     """
     assert time.model() is model.model()
 
-    if new_ctype is NoCtype:
-        new_ctype = ctype
-
     block_queue = [model]
     regular_comps = []
     time_indexed_comps = []
@@ -134,7 +127,7 @@ def flatten_dae_components(model, time, ctype, new_ctype=NoCtype):
         b_sets = b.index_set().subsets()
         if time in b_sets:
             for _slice in generate_time_indexed_block_slices(b, time, ctype):
-                time_indexed_comps.append(Reference(_slice, ctype=new_ctype))
+                time_indexed_comps.append(Reference(_slice))
             continue
         for blkdata in b.values():
             block_queue.extend(
@@ -147,7 +140,7 @@ def flatten_dae_components(model, time, ctype, new_ctype=NoCtype):
                 if time in v_sets:
                     for _slice in generate_time_only_slices(v, time):
                         time_indexed_comps.append(
-                                Reference(_slice, ctype=new_ctype))
+                                Reference(_slice))
                 else:
                     regular_comps.extend(v.values())
 
