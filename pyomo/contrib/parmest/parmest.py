@@ -79,31 +79,7 @@ def _object_from_string(instance, vstr):
           There can be blocks within blocks and the Var might not be indexed...
     TBD: do a better job with indexes (e.g., tuples of integers)
     """
-
-    def ni(s):
-        l = s.find('[')
-        if l == -1:
-            indexstr = None
-            basestr = s
-        else:
-            r = s.find(']')
-            indexstr = s[l+1:r]
-            basestr = s[:l]
-        return basestr, indexstr
-
-    retval = instance
-    parts = vstr.split('.')
-    for i in range(len(parts)):
-        bname, bindex = ni(parts[i])
-        if bindex is None:
-            retval = getattr(retval, bname)
-        else:
-            try:
-                bindex = int(bindex)  # TBD: improve
-            except:
-                pass
-            retval = getattr(retval, bname)[bindex]
-    return retval
+    return instance.find_component(vstr)
 
 
 def _experiment_instance_creation_callback(scenario_name, node_names=None, cb_data=None):
