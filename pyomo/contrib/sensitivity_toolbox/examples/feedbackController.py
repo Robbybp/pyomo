@@ -17,8 +17,18 @@
 # 
 # min J(u) = (1/2)*H*x^2(T)+\int_0^T ((1/4)*u^2(t)dt)
 
-from pyomo.environ import (ConcreteModel, Param, Var, Objective, Constraint,
-                           Suffix, value, TransformationFactory, SolverFactory)
+from pyomo.environ import (
+        ConcreteModel,
+        Param,
+        Var,
+        Objective,
+        Constraint,
+        Suffix,
+        value,
+        TransformationFactory,
+        SolverFactory,
+        Expression,
+        )
 from pyomo.dae import ContinuousSet, DerivativeVar
 from pyomo.dae.simulator import Simulator
 from pyomo.contrib.sensitivity_toolbox.sens import sensitivity_calculation
@@ -33,26 +43,26 @@ def create_model():
     m.t = ContinuousSet(bounds=(0,m.T))
 
     m.x = Var(m.t)
-    m.F = Var(m.t)
-    m.u = Var(m.t,initialize=0, bounds=(-0.2,0))
+    #m.F = Var(m.t)
+    m.u = Var(m.t, initialize=0, bounds=(-0.2, None))
 
     m.dx = DerivativeVar(m.x, wrt=m.t)
-    m.df0 = DerivativeVar(m.F, wrt=m.t)
+    #m.df0 = DerivativeVar(m.F, wrt=m.t)
 
     m.x[0].fix(5)
-    m.F[0].fix(0)
+    #m.F[0].fix(0)
 
     def _x(m,t):
         return m.dx[t]==m.a*m.x[t]+m.u[t]
     m.x_dot = Constraint(m.t, rule=_x)
 
-    def _f0(m,t):
-        return m.df0[t]==0.25*m.u[t]**2
-    m.FDiffCon = Constraint(m.t, rule=_f0)
+    #def _f0(m,t):
+    #    return m.df0[t]==0.25*m.u[t]**2
+    #m.FDiffCon = Constraint(m.t, rule=_f0)
 
-    def _Cost(m):
-        return 0.5*m.H*m.x[m.T]**2+m.F[m.T]
-    m.J = Objective(rule=_Cost)
+    #def _Cost(m):
+    #    return 0.5*m.H*m.x[m.T]**2 + m.F[m.T]
+    #m.J = Objective(rule=_Cost)
 
     return m
 
@@ -63,11 +73,24 @@ def initialize_model(m,nfe):
     m.u_input = Suffix(direction=Suffix.LOCAL)
     m.u_input[m.u]=u_profile
 
+    delta_t = m.T/nfe
+
     sim = Simulator(m,package='scipy')
     tsim, profiles = sim.simulate(numpoints=100, varying_inputs=m.u_input)
 
     discretizer = TransformationFactory('dae.collocation')
     discretizer.apply_to(m, nfe=nfe, ncp=1, scheme='LAGRANGE-RADAU')
+
+    def _f_rule(m, t):
+        return 0.25*delta_t*sum(
+                m.u[s]**2 for i, s in enumerate(m.t)
+                if i != 0 and s <= t
+                )
+    m.F = Expression(m.t, rule=_f_rule)
+
+    def _Cost(m):
+        return 0.5*m.H*m.x[m.T]**2 + m.F[m.T]
+    m.J = Objective(rule=_Cost)
 
     sim.initialize_model()
 
