@@ -216,6 +216,17 @@ class TestSensitivityToolbox(unittest.TestCase):
         self.assertAlmostEqual(value(m_sipopt.x[15]), 0.0753, 4)
         self.assertAlmostEqual(value(m_sipopt.u[15]), -0.0731, 4)
         self.assertAlmostEqual(value(m_sipopt.J), 0.0048956783, 8)
+        self.assertTrue(m_sipopt.ipopt_zL_out[m_sipopt.u[15]] < 1e-7)
+        # The actual value of this (non-updated) dual value is 1.97e-8,
+        # but we should not expect this much precision.
+
+        # Test one of the equality duals.
+        # This is cumbersome as the old constraints are deactivated.
+        for new, old in m_sipopt._SENSITIVITY_TOOLBOX_DATA._replaced_map.items():
+            if old is m_sipopt.x_dot[15]:
+                xdiffcon = new
+                break
+        self.assertAlmostEqual(m_sipopt.dual[xdiffcon], 0.00548, 5)
 
         # FIXME: The updated values appear to be different between sipopt
         # and k_aug
@@ -253,14 +264,18 @@ class TestSensitivityToolbox(unittest.TestCase):
     def test_noClone_soln(self):
 
         m_orig = fc.create_model()
-        fc.initialize_model(m_orig,100)
+        fc.initialize_model(m_orig, 100)
 
         m_orig.perturbed_a = Param(initialize=-0.25)
         m_orig.perturbed_H = Param(initialize=0.55)
 
-        m_sipopt = sensitivity_calculation('sipopt',m_orig,[m_orig.a,m_orig.H],
-                            [m_orig.perturbed_a,m_orig.perturbed_H],
-                            cloneModel=False)
+        m_sipopt = sensitivity_calculation(
+                'sipopt',
+                m_orig,
+                [m_orig.a, m_orig.H],
+                [m_orig.perturbed_a, m_orig.perturbed_H],
+                cloneModel=False,
+                )
 
         self.assertIs(m_sipopt, m_orig)
 
@@ -269,6 +284,17 @@ class TestSensitivityToolbox(unittest.TestCase):
         self.assertAlmostEqual(value(m_sipopt.x[15]), 0.0753, 4)
         self.assertAlmostEqual(value(m_sipopt.u[15]), -0.0731, 4)
         self.assertAlmostEqual(value(m_sipopt.J), 0.0048956783, 8)
+        self.assertTrue(m_sipopt.ipopt_zL_out[m_sipopt.u[15]] < 1e-7)
+        # The actual value of this (non-updated) dual value is 1.97e-8,
+        # but we should not expect this much precision.
+
+        # Test one of the equality duals.
+        # This is cumbersome as the old constraints are deactivated.
+        for new, old in m_sipopt._SENSITIVITY_TOOLBOX_DATA._replaced_map.items():
+            if old is m_sipopt.x_dot[15]:
+                xdiffcon = new
+                break
+        self.assertAlmostEqual(m_sipopt.dual[xdiffcon], 0.00548, 5)
 
         # test _SENSITIVITY_TOOLBOX_DATA block exists
         self.assertTrue(hasattr(m_orig,'_SENSITIVITY_TOOLBOX_DATA') and
@@ -305,6 +331,9 @@ class TestSensitivityToolbox(unittest.TestCase):
                         m_sipopt.sens_init_constr[
                                      m_sipopt._SENSITIVITY_TOOLBOX_DATA.paramConst[2]]==2)
 
+        # FIXME: values are off. When we attempt to verify the correctness of
+        # the perturbed solution, we obserte that the values are different
+        # from those we get with k_aug and an independent calculation.
         self.assertTrue(hasattr(m_sipopt,'sens_sol_state_1') and
                         m_sipopt.sens_sol_state_1.ctype is Suffix)
         #self.assertAlmostEqual(
@@ -432,15 +461,18 @@ class TestSensitivityToolbox(unittest.TestCase):
     
         d = param_ex.run_example()
         
-        d_correct = {'eta1':4.5, 'eta2':1.0, 'x1_init':0.15, 'x2_init':0.15, 'x3_init':0.0,
-            'cost_sln':0.5, 'x1_sln':0.5, 'x2_sln':0.5, 'x3_sln':0.0, 'eta1_pert':4.0,
-            'eta2_pert':1.0, 'x1_pert':0.3333333,'x2_pert':0.6666667,'x3_pert':0.0,
-            'cost_pert':0.55555556}
+        d_correct = {
+                'eta1': 4.5, 'eta2': 1.0, 'x1_init': 0.15, 'x2_init': 0.15,
+                'x3_init': 0.0, 'cost_sln': 0.5, 'x1_sln': 0.5, 'x2_sln': 0.5,
+                'x3_sln': 0.0, 'eta1_pert': 4.0, 'eta2_pert': 1.0,
+                'x1_pert': 0.3333333,'x2_pert': 0.6666667,'x3_pert': 0.0,
+                'cost_pert': 0.55555556,
+                }
         
         for k in d_correct.keys():
             # Check each element of the 'correct' dictionary against the returned 
             # dictionary to 3 decimal places
-            self.assertAlmostEqual(d[k],d_correct[k],3)
+            self.assertAlmostEqual(d[k], d_correct[k], 3)
     
     
     # Test kaug
@@ -451,14 +483,18 @@ class TestSensitivityToolbox(unittest.TestCase):
     @unittest.skipIf(not opt_dotsens.available(False), "dot_sens is not available")
     def test_kaug_clonedModel_soln_kaug(self):
         m_orig = fc.create_model()
-        fc.initialize_model(m_orig,100)
+        fc.initialize_model(m_orig, 100)
 
         m_orig.perturbed_a = Param(initialize=-0.25)
         m_orig.perturbed_H = Param(initialize=0.55)
 
-        m_kaug = sensitivity_calculation('kaug',m_orig,[m_orig.a,m_orig.H],
-                               [m_orig.perturbed_a,m_orig.perturbed_H],
-                                cloneModel=True)
+        m_kaug = sensitivity_calculation(
+                'kaug',
+                m_orig,
+                [m_orig.a, m_orig.H],
+                [m_orig.perturbed_a, m_orig.perturbed_H],
+                cloneModel=True,
+                )
 
         # Assert that we got the answer we expect
         # The variables in k_aug have been updated, so these are
@@ -470,6 +506,26 @@ class TestSensitivityToolbox(unittest.TestCase):
         self.assertAlmostEqual(value(m_kaug.u[15]), -0.0225, 4)
         self.assertAlmostEqual(value(m_kaug.J), 0.000735195, 8)
 
+        # Test one of the equality duals.
+        # This is cumbersome as the old constraints are deactivated.
+        for new, old in m_kaug._SENSITIVITY_TOOLBOX_DATA._replaced_map.items():
+            if old is m_kaug.x_dot[15]:
+                xdiffcon = new
+                break
+        self.assertAlmostEqual(m_kaug.dual[xdiffcon], 0.00548, 5)
+        # k_aug (dot_driver) does not currently update equality duals.
+        # The updated value of this dual, according to PyNumero calculations,
+        # should be 0.00927.
+        # If k_aug changes to update the duals, this assertion will need to be
+        # updated.
+
+        # k_aug also does not update inequality duals. By not setting these
+        # values, it wipes the ipopt_zL/U_out suffixes. The values from
+        # the original ipopt solve are stored in ipopt_zL/U_in, however.
+        self.assertTrue(m_kaug.ipopt_zL_in[m_kaug.u[15]] < 1e-7)
+        # The actual value of this (non-updated) dual value is 1.97e-8,
+        # but we should not expect this much precision.
+
         ptb_map = ComponentMap()
         ptb_map[m_kaug.a] = value(-(m_orig.perturbed_a - m_orig.a))
         ptb_map[m_kaug.H] = value(-(m_orig.perturbed_H - m_orig.H))
@@ -478,40 +534,40 @@ class TestSensitivityToolbox(unittest.TestCase):
         # and original model is untouched
         self.assertIsNot(m_kaug, m_orig)
 
-        self.assertTrue(hasattr(m_kaug,'_SENSITIVITY_TOOLBOX_DATA') and
+        self.assertTrue(hasattr(m_kaug, '_SENSITIVITY_TOOLBOX_DATA') and
                         m_kaug._SENSITIVITY_TOOLBOX_DATA.ctype is Block)
 
-        self.assertFalse(hasattr(m_orig,'_SENSITIVITY_TOOLBOX_DATA'))
-        self.assertFalse(hasattr(m_orig,'b'))
+        self.assertFalse(hasattr(m_orig, '_SENSITIVITY_TOOLBOX_DATA'))
+        self.assertFalse(hasattr(m_orig, 'b'))
 
         # verify variable declaration
-        self.assertTrue(hasattr(m_kaug._SENSITIVITY_TOOLBOX_DATA,'a') and
+        self.assertTrue(hasattr(m_kaug._SENSITIVITY_TOOLBOX_DATA, 'a') and
                         m_kaug._SENSITIVITY_TOOLBOX_DATA.a.ctype is Var)
-        self.assertTrue(hasattr(m_kaug._SENSITIVITY_TOOLBOX_DATA,'H') and
+        self.assertTrue(hasattr(m_kaug._SENSITIVITY_TOOLBOX_DATA, 'H') and
                         m_kaug._SENSITIVITY_TOOLBOX_DATA.H.ctype is Var)
 
         # verify suffixes
-        self.assertTrue(hasattr(m_kaug,'sens_state_0') and
+        self.assertTrue(hasattr(m_kaug, 'sens_state_0') and
                         m_kaug.sens_state_0.ctype is Suffix and
                         m_kaug.sens_state_0[m_kaug._SENSITIVITY_TOOLBOX_DATA.H]==2 and
                         m_kaug.sens_state_0[m_kaug._SENSITIVITY_TOOLBOX_DATA.a]==1)
-        self.assertTrue(hasattr(m_kaug,'sens_state_1') and
+        self.assertTrue(hasattr(m_kaug, 'sens_state_1') and
                         m_kaug.sens_state_1.ctype is Suffix and
                         m_kaug.sens_state_1[m_kaug._SENSITIVITY_TOOLBOX_DATA.H]==2 and
                         m_kaug.sens_state_1[m_kaug._SENSITIVITY_TOOLBOX_DATA.a]==1)
-        self.assertTrue(hasattr(m_kaug,'sens_state_value_1') and
+        self.assertTrue(hasattr(m_kaug, 'sens_state_value_1') and
                         m_kaug.sens_state_value_1.ctype is Suffix and
                         m_kaug.sens_state_value_1[
                                         m_kaug._SENSITIVITY_TOOLBOX_DATA.H]==0.55 and
                         m_kaug.sens_state_value_1[
                                         m_kaug._SENSITIVITY_TOOLBOX_DATA.a]==-0.25)
-        self.assertTrue(hasattr(m_kaug,'sens_init_constr') and
+        self.assertTrue(hasattr(m_kaug, 'sens_init_constr') and
                         m_kaug.sens_init_constr.ctype is Suffix and
                         m_kaug.sens_init_constr[
                                      m_kaug._SENSITIVITY_TOOLBOX_DATA.paramConst[1]]==1 and
                         m_kaug.sens_init_constr[
                                      m_kaug._SENSITIVITY_TOOLBOX_DATA.paramConst[2]]==2)
-        self.assertTrue(hasattr(m_kaug,'DeltaP'))
+        self.assertTrue(hasattr(m_kaug, 'DeltaP'))
         self.assertTrue(m_kaug.DeltaP.ctype is Suffix)
         self.assertEqual(
                 m_kaug.DeltaP[m_kaug._SENSITIVITY_TOOLBOX_DATA.paramConst[1]],
@@ -521,22 +577,17 @@ class TestSensitivityToolbox(unittest.TestCase):
                 m_kaug.DeltaP[m_kaug._SENSITIVITY_TOOLBOX_DATA.paramConst[2]],
                 ptb_map[m_kaug.H]
                 )
-        self.assertTrue(hasattr(m_kaug,'dcdp') and 
+        self.assertTrue(hasattr(m_kaug, 'dcdp') and 
                 m_kaug.dcdp.ctype is Suffix and
                 m_kaug.dcdp[m_kaug._SENSITIVITY_TOOLBOX_DATA.paramConst[1]]==1 and
                 m_kaug.dcdp[m_kaug._SENSITIVITY_TOOLBOX_DATA.paramConst[2]]==2)
-        self.assertTrue(hasattr(m_kaug,'sens_sol_state_1') and
+        self.assertTrue(hasattr(m_kaug, 'sens_sol_state_1') and
                 m_kaug.sens_sol_state_1.ctype is Suffix)
 
-        self.assertTrue(hasattr(m_kaug,'ipopt_zL_in') and
+        self.assertTrue(hasattr(m_kaug, 'ipopt_zL_in') and
                 m_kaug.ipopt_zL_in.ctype is Suffix)
-        #self.assertAlmostEqual(
-        #        m_kaug.ipopt_zL_in[m_kaug.u[15]],
-        #        7.162686166847096e-09,
-        #        13,
-        #        )
 
-        self.assertTrue(hasattr(m_kaug,'ipopt_zU_in') and
+        self.assertTrue(hasattr(m_kaug, 'ipopt_zU_in') and
                         m_kaug.ipopt_zU_in.ctype is Suffix)
         # verify deactivated constraints for cloned model
         self.assertFalse(m_kaug.x_dot[0].active and
@@ -560,9 +611,13 @@ class TestSensitivityToolbox(unittest.TestCase):
         m_orig.perturbed_a = Param(initialize=-0.25)
         m_orig.perturbed_H = Param(initialize=0.55)
 
-        m_kaug = sensitivity_calculation('kaug',m_orig,[m_orig.a,m_orig.H],
-                             [m_orig.perturbed_a,m_orig.perturbed_H],
-                             cloneModel=False)
+        m_kaug = sensitivity_calculation(
+                'kaug',
+                m_orig,
+                [m_orig.a, m_orig.H],
+                [m_orig.perturbed_a, m_orig.perturbed_H],
+                cloneModel=False,
+                )
 
         # Assert that we got the answer we expect
         # The variables in k_aug have been updated, so these are
@@ -574,6 +629,26 @@ class TestSensitivityToolbox(unittest.TestCase):
         self.assertAlmostEqual(value(m_kaug.u[15]), -0.0225, 4)
         self.assertAlmostEqual(value(m_kaug.J), 0.000735195, 8)
 
+        # Test one of the equality duals.
+        # This is cumbersome as the old constraints are deactivated.
+        for new, old in m_kaug._SENSITIVITY_TOOLBOX_DATA._replaced_map.items():
+            if old is m_kaug.x_dot[15]:
+                xdiffcon = new
+                break
+        self.assertAlmostEqual(m_kaug.dual[xdiffcon], 0.00548, 5)
+        # k_aug (dot_driver) does not currently update equality duals.
+        # The updated value of this dual, according to PyNumero calculations,
+        # should be 0.00927.
+        # If k_aug changes to update the duals, this assertion will need to be
+        # updated.
+
+        # k_aug also does not update inequality duals. By not setting these
+        # values, it wipes the ipopt_zL/U_out suffixes. The values from
+        # the original ipopt solve are stored in ipopt_zL/U_in, however.
+        self.assertTrue(m_kaug.ipopt_zL_in[m_kaug.u[15]] < 1e-7)
+        # The actual value of this (non-updated) dual value is 1.97e-8,
+        # but we should not expect this much precision.
+
         ptb_map = ComponentMap()
         ptb_map[m_kaug.a] = value(-(m_kaug.perturbed_a - m_kaug.a))
         ptb_map[m_kaug.H] = value(-(m_kaug.perturbed_H - m_kaug.H))
@@ -581,27 +656,29 @@ class TestSensitivityToolbox(unittest.TestCase):
         self.assertTrue(m_kaug == m_orig)
         
         # verify suffixes
-        self.assertTrue(hasattr(m_kaug,'sens_state_0') and
+        self.assertTrue(hasattr(m_kaug, 'sens_state_0') and
                         m_kaug.sens_state_0.ctype is Suffix and
                         m_kaug.sens_state_0[m_kaug._SENSITIVITY_TOOLBOX_DATA.H]==2 and
                         m_kaug.sens_state_0[m_kaug._SENSITIVITY_TOOLBOX_DATA.a]==1)
-        self.assertTrue(hasattr(m_kaug,'sens_state_1') and
+        self.assertTrue(hasattr(m_kaug, 'sens_state_1') and
                         m_kaug.sens_state_1.ctype is Suffix and
                         m_kaug.sens_state_1[m_kaug._SENSITIVITY_TOOLBOX_DATA.H]==2 and
                         m_kaug.sens_state_1[m_kaug._SENSITIVITY_TOOLBOX_DATA.a]==1)
-        self.assertTrue(hasattr(m_kaug,'sens_state_value_1') and
+        self.assertTrue(hasattr(m_kaug, 'sens_state_value_1') and
                         m_kaug.sens_state_value_1.ctype is Suffix and
                         m_kaug.sens_state_value_1[
                                         m_kaug._SENSITIVITY_TOOLBOX_DATA.H]==0.55 and
                         m_kaug.sens_state_value_1[
                                         m_kaug._SENSITIVITY_TOOLBOX_DATA.a]==-0.25)
-        self.assertTrue(hasattr(m_kaug,'sens_init_constr') and
-                        m_kaug.sens_init_constr.ctype is Suffix and
-                        m_kaug.sens_init_constr[
-                                     m_kaug._SENSITIVITY_TOOLBOX_DATA.paramConst[1]]==1 and
-                        m_kaug.sens_init_constr[
-                                     m_kaug._SENSITIVITY_TOOLBOX_DATA.paramConst[2]]==2)
-        self.assertTrue(hasattr(m_kaug,'DeltaP'))
+        self.assertTrue(
+                hasattr(m_kaug, 'sens_init_constr') and
+                m_kaug.sens_init_constr.ctype is Suffix and
+                m_kaug.sens_init_constr[
+                    m_kaug._SENSITIVITY_TOOLBOX_DATA.paramConst[1]]==1 and
+                m_kaug.sens_init_constr[
+                    m_kaug._SENSITIVITY_TOOLBOX_DATA.paramConst[2]]==2
+                )
+        self.assertTrue(hasattr(m_kaug, 'DeltaP'))
         self.assertIs(m_kaug.DeltaP.ctype, Suffix)
         self.assertEqual(
                 m_kaug.DeltaP[m_kaug._SENSITIVITY_TOOLBOX_DATA.paramConst[1]],
@@ -611,20 +688,20 @@ class TestSensitivityToolbox(unittest.TestCase):
                 m_kaug.DeltaP[m_kaug._SENSITIVITY_TOOLBOX_DATA.paramConst[2]],
                 ptb_map[m_kaug.H]
                 )
-        self.assertTrue(hasattr(m_kaug,'dcdp') and
-                        m_kaug.dcdp.ctype is Suffix and
-                        m_kaug.dcdp[m_kaug._SENSITIVITY_TOOLBOX_DATA.paramConst[1]]==1 and
-                        m_kaug.dcdp[m_kaug._SENSITIVITY_TOOLBOX_DATA.paramConst[2]]==2)
-        self.assertTrue(hasattr(m_kaug,'sens_sol_state_1') and
+        self.assertTrue(
+                hasattr(m_kaug, 'dcdp') and
+                m_kaug.dcdp.ctype is Suffix and
+                m_kaug.dcdp[
+                    m_kaug._SENSITIVITY_TOOLBOX_DATA.paramConst[1]]==1 and
+                m_kaug.dcdp[m_kaug._SENSITIVITY_TOOLBOX_DATA.paramConst[2]]==2
+                )
+        self.assertTrue(hasattr(m_kaug, 'sens_sol_state_1') and
                         m_kaug.sens_sol_state_1.ctype is Suffix)
 
-        self.assertTrue(hasattr(m_kaug,'ipopt_zL_in') and
+        self.assertTrue(hasattr(m_kaug, 'ipopt_zL_in') and
                         m_kaug.ipopt_zL_in.ctype is Suffix)
-        #self.assertAlmostEqual(
-        #                m_kaug.ipopt_zL_in[
-        #                   m_kaug.u[15]],7.162686166847096e-09,13)
 
-        self.assertTrue(hasattr(m_kaug,'ipopt_zU_in') and
+        self.assertTrue(hasattr(m_kaug, 'ipopt_zU_in') and
                         m_kaug.ipopt_zU_in.ctype is Suffix)
         # verify deactivated constraints for cloned model
         self.assertFalse(m_kaug.x_dot[0].active and
@@ -708,9 +785,12 @@ class TestSensitivityToolbox(unittest.TestCase):
 
         d = param_kaug_ex.run_example()
 
-        d_correct = {'eta1':4.5, 'eta2':1.0, 'x1_init':0.15, 'x2_init':0.15, 'x3_init':0.0,
-                     'eta1_pert':4.0, 'eta2_pert':1.0, 'x1_pert':0.3333333,'x2_pert':0.6666667,
-                     'x3_pert':0.0, 'cost_pert':0.55555556}
+        d_correct = {
+                'eta1': 4.5, 'eta2': 1.0, 'x1_init': 0.15, 'x2_init': 0.15,
+                'x3_init': 0.0, 'eta1_pert': 4.0, 'eta2_pert': 1.0,
+                'x1_pert': 0.3333333,'x2_pert': 0.6666667, 'x3_pert': 0.0,
+                'cost_pert': 0.55555556,
+                }
 
         for k in d_correct.keys():
             # Check each element of the 'correct' dictionary against the returned 
