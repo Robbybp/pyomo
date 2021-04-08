@@ -141,13 +141,13 @@ def sensitivity_calculation(method, instance, paramList, perturbList,
             # directory already exists
             pass
         try:
-            shutil.move("dsdp_in_.in","./dsdp/")
-            shutil.move("col_row.nl","./dsdp/")
-            shutil.move("col_row.col","./dsdp/")
-            shutil.move("col_row.row","./dsdp/")
-            shutil.move("conorder.txt","./dsdp/")
-            shutil.move("delta_p.out","./dsdp/")
-            shutil.move("dot_out.out","./dsdp/")
+            shutil.move("dsdp_in_.in", "./dsdp/")
+            shutil.move("col_row.nl", "./dsdp/")
+            shutil.move("col_row.col", "./dsdp/")
+            shutil.move("col_row.row", "./dsdp/")
+            shutil.move("conorder.txt", "./dsdp/")
+            shutil.move("delta_p.out", "./dsdp/")
+            shutil.move("dot_out.out", "./dsdp/")
             shutil.move("timings_dot_driver_dsdp.txt", "./dsdp/")
             shutil.move("timings_k_aug_dsdp.txt", "./dsdp/")
         except OSError:
@@ -483,6 +483,10 @@ class SensitivityInterface(object):
         # parameters with vairables.
         block.constList = ConstraintList()
 
+        # If expression replacement is required, this will be a map from
+        # new constraints to the constraint they replaced.
+        block._replaced_map = None
+
         return block
 
     def _add_sensitivity_data(self, param_list):
@@ -629,7 +633,8 @@ class SensitivityInterface(object):
             # We now replace the provided parameters in the user's
             # expressions. Only do this if we have to, i.e. the
             # user provided some parameters rather than all vars.
-            self._replace_parameters_in_constraints(variableSubMap)
+            block._replaced_map = self._replace_parameters_in_constraints(
+                    variableSubMap)
 
             # Assume that we just replaced some params
             block._has_replaced_expressions = True
