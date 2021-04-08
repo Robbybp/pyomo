@@ -43,26 +43,13 @@ def create_model():
     m.t = ContinuousSet(bounds=(0,m.T))
 
     m.x = Var(m.t)
-    #m.F = Var(m.t)
     m.u = Var(m.t, initialize=0, bounds=(-0.2, None))
 
     m.dx = DerivativeVar(m.x, wrt=m.t)
-    #m.df0 = DerivativeVar(m.F, wrt=m.t)
-
-    m.x[0].fix(5)
-    #m.F[0].fix(0)
 
     def _x(m,t):
         return m.dx[t]==m.a*m.x[t]+m.u[t]
     m.x_dot = Constraint(m.t, rule=_x)
-
-    #def _f0(m,t):
-    #    return m.df0[t]==0.25*m.u[t]**2
-    #m.FDiffCon = Constraint(m.t, rule=_f0)
-
-    #def _Cost(m):
-    #    return 0.5*m.H*m.x[m.T]**2 + m.F[m.T]
-    #m.J = Objective(rule=_Cost)
 
     return m
 
