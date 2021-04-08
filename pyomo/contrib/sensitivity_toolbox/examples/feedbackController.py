@@ -45,6 +45,7 @@ def create_model():
     m.x = Var(m.t)
     m.u = Var(m.t, initialize=0, bounds=(-0.2, None))
 
+    m.x[0].fix(5)
     m.dx = DerivativeVar(m.x, wrt=m.t)
 
     def _x(m,t):
