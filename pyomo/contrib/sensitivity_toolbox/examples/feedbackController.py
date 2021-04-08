@@ -120,7 +120,7 @@ def plot_optimal_solution(m):
 
 if __name__ == '__main__':
     m = create_model()
-    initialize_model(m,100)
+    initialize_model(m, 100)
 
 #    plt = plot_optimal_solution(m)
 #    plt.show()
@@ -132,11 +132,17 @@ if __name__ == '__main__':
                       cloneModel=True,
                       tee=True)
 
-    for var, val in m_sipopt.sens_sol_state_1.items():
+    for new, old in m_sipopt._SENSITIVITY_TOOLBOX_DATA._replaced_map.items():
+        if old is m_sipopt.x_dot[15]:
+            xdiffcon = new
+            break
+
+    for comp, val in m_sipopt.sens_sol_state_1.items():
         # To load updated variable values back into the model:
-        if var.ctype is not Var:
-            continue
-        var.set_value(val)
+        if comp.ctype is Var:
+            comp.set_value(val)
+        elif comp.ctype is Constraint:
+            m_sipopt.dual[comp] = val
 
     m_sipopt.a.set_value(value(m_sipopt.perturbed_a))
     m_sipopt.H.set_value(value(m_sipopt.perturbed_H))
