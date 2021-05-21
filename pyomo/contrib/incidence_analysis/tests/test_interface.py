@@ -134,19 +134,19 @@ class TestGasExpansionNumericIncidenceMatrix(unittest.TestCase):
             deriv_lookup[i,j] = 1.0
 
             j = var_idx_map[model.rho[s]]
-            deriv_lookup[i,j] = - model.R.value*model.T[s].value
+            deriv_lookup[i,j] = pyo.value(-model.R.value*model.T[s])
 
             j = var_idx_map[model.T[s]]
-            deriv_lookup[i,j] = - model.R.value*model.rho[s].value
+            deriv_lookup[i,j] = pyo.value(-model.R.value*model.rho[s])
 
             if s != model.streams.first():
                 # Expansion:
                 i = con_idx_map[model.expansion[s]]
                 j = var_idx_map[model.P[s]]
-                deriv_lookup[i,j] = 1/model.P[s-1].value
+                deriv_lookup[i,j] = pyo.value(1/model.P[s-1])
 
                 j = var_idx_map[model.P[s-1]]
-                deriv_lookup[i,j] = -model.P[s].value/model.P[s-1]**2
+                deriv_lookup[i,j] = pyo.value(-model.P[s]/model.P[s-1]**2)
 
                 j = var_idx_map[model.rho[s]]
                 deriv_lookup[i,j] = pyo.value(
@@ -201,7 +201,7 @@ class TestGasExpansionNumericIncidenceMatrix(unittest.TestCase):
             var = all_vars[j]
             self.assertIn(var, csr_map[con])
             csr_map[con].remove(var)
-            self.assertAlmostEqual(pyo.value(deriv_lookup[i,j]), pyo.value(e), 8)
+            self.assertAlmostEqual(deriv_lookup[i,j], e, 8)
         # And no additional rows
         for con in csr_map:
             self.assertEqual(len(csr_map[con]), 0)
