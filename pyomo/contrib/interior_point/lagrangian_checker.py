@@ -12,6 +12,11 @@ __all__ = ['LagrangianChecker']
 
 import enum
 
+from pyomo.core.base.objective import Objective
+from pyomo.core.base.var import Var
+from pyomo.core.base.constraint import Constraint
+from pyomo.core.expr.calculus.diff_with_pyomo import reverse_ad
+
 class LagrangianTerms(enum.Enum):
     OBJECTIVE = 0
     EQUALITY = 1
@@ -23,6 +28,24 @@ class LagrangianTerms(enum.Enum):
     PRIMAL_BOUND_LOWER = 7
     SLACK_BOUND_UPPER = 8
     SLACK_BOUND_LOWER = 9
+
+
+def _check_nonzero(term, factor):
+    if factor == 0:
+        raise ValueError(
+            "Cannot compare Lagrangians because term %s has factor zero.\n"
+            "If this term is not present, it should be omitted."
+            % term
+            )
+
+
+def _check_contained(term, factor_dict):
+    if term not in factor_dict:
+        raise ValueError(
+            "Term %s does not appear in Lagrangian.\n"
+            "Cannot compare formulations if terms are not the same."
+            % term
+            )
 
 
 def get_conversion_factors(
@@ -41,29 +64,105 @@ def get_conversion_factors(
     of the factors representing the body (variable part) of the
     inequalities. These differ depending on whether inequalities (and bounds)
     are reformulated into ">= 0" or "<= 0" inequalities by the solver.
+
+    Returns a dict mapping terms of lagrangian to the factor that should be
+    multiplied 
     """
-    if any(t1 != t2 for t1, t2 in zip(source_factors, target_factors)):
-        raise ValueError(
-            "Cannot convert multipliers if Lagrangian functions\n"
-            "do not contain the same terms."
-            )
+    for term, factor in source_factors:
+        _check_contained(term, target_factors)
+        _check_nonzero(factor)
+    for term, factor in target_factors:
+        _check_contained(term, source_factors)
+        _check_nonzero(factor)
 
     LT = LagrangianTerms
-    source_objective_factor = source_factors[LT.OBJECTIVE]
-    target_objective_factor = target_factors[LT.OBJECTIVE]
+    OBJ = LT.OBJECTIVE
+    objective_factor = target_factors[OBJ]/source_factors[OBJ]\
+            if OBJ in target_factors else 1.0
+
     conversion_factors = {}
+
+    EQ = LT.EQUALITY
+    if EQ in source_factors:
+        conversion_factors[EQ] = (
+                objective_factor*source_factors[EQ]/target_factors[EQ]
+                )
 
 
 
 class LagrangianChecker(object):
 
-    def __init__(model,
-            equality_multiplier_suffix=None,
-            upper_multiplier_suffix=None,
-            lower_multiplier_suffix=None,
-            ):
+    def __init__(model, multiplier_suffix_map):
         self._model = model
-        self._equality_suffix = equality_multiplier_suffix
-        self._upper_suffix = upper_multiplier_suffix
-        self._lower_suffix = lower_multiplier_suffix
+        self._multiplier_suffix_map = multiplier_suffix_map
 
+    def _check_compatible_convention(convention):
+        suffix_map = self._multiplier_suffix_map
+        for term in convention:
+            if term not in suffix_map:
+                raise RuntimeError(
+                        "Was not provided a suffix for Lagrangian term %s."
+                        % term
+                        )
+
+    def get_lagrangian(self, convention):
+        model = self._model
+        suffix_map = self._multiplier_suffix_map
+        self._check_compatible_convention(convention)
+        LT = LagrangianTerms
+
+        term_exprs = []
+
+        OBJ = LT.OBJECTIVE
+        if OBJ in convention:
+            term_exprs.append(convention[OBJ]*sum(
+                obj.expr for obj in
+                model.component_data_objects(Objective, active=True)
+                ))
+
+        EQ = LT.EQUALITY
+        if EQ in convention:
+            # This will result in a term of '0' if the suffix is empty,
+            # which may not be what we want...
+            term_exprs.append(convention[EQ]*sum(
+                # IMPORTANT: We convert equalities into "canonical form"
+                # by subtracting the right hand side from the body.
+                # If a solver does the reverse, we must take this into
+                # account in that solver's "convention."
+                mult*(con.body - con.upper)
+                for con, mult in suffix_map[EQ].items()
+                ))
+
+        return sum(term_exprs)
+
+    def get_gradient_lagrangian(self, convention):
+        """
+        Gradient of the Lagrangian with respect to primal variables,
+        according to the provided convention.
+        """
+        model = self._model
+        suffix_map = self._multiplier_suffix_map
+        self._check_compatible_convention(convention)
+        LT = LagrangianTerms
+
+        derivs = ComponentMap([
+            (var, 0.0) for var in model.component_data_objects(Var)
+            if not var.fixed])
+
+        OBJ = LT.OBJECTIVE
+        if OBJ in convention:
+            for obj in model.component_data_objects(Objective, active=True):
+                grad = reverse_ad(obj.expr)
+                for var, val in grad.items():
+                    if var in derivs:
+                        derivs[var] += convention[OBJ]*val
+
+        EQ = LT.EQUALITY
+        if EQ in convention:
+            for con, mult in suffix_map[EQ].items():
+                grad = reverse_ad(obj.expr)
+                for var, val in grad.items():
+                    if var in derivs:
+                        derivs[var] += (
+                                convention[EQ]*mult*(con.body - con.upper)
+                                )
