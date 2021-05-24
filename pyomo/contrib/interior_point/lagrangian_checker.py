@@ -16,18 +16,20 @@ from pyomo.core.base.objective import Objective
 from pyomo.core.base.var import Var
 from pyomo.core.base.constraint import Constraint
 from pyomo.core.expr.calculus.diff_with_pyomo import reverse_ad
+from pyomo.common.collections import ComponentMap
 
 class LagrangianTerms(enum.Enum):
     OBJECTIVE = 0
     EQUALITY = 1
-    INEQUALITY_LOWER = 2
-    INEQUALITY_UPPER = 3
-    INEQUALITY_LOWER_SLACK = 4
-    INEQUALITY_UPPER_SLACK = 5
-    PRIMAL_BOUND_UPPER = 6
-    PRIMAL_BOUND_LOWER = 7
-    SLACK_BOUND_UPPER = 8
-    SLACK_BOUND_LOWER = 9
+    INEQUALITY = 2
+    INEQUALITY_LOWER = 3
+    INEQUALITY_UPPER = 4
+    INEQUALITY_LOWER_SLACK = 5
+    INEQUALITY_UPPER_SLACK = 6
+    PRIMAL_BOUND_UPPER = 7
+    PRIMAL_BOUND_LOWER = 8
+    SLACK_BOUND_UPPER = 9
+    SLACK_BOUND_LOWER = 10
 
 
 def _check_nonzero(term, factor):
@@ -48,7 +50,7 @@ def _check_contained(term, factor_dict):
             )
 
 
-def get_conversion_factors(
+def get_multiplier_conversion_factors(
         source_factors,
         source_inequality_signs,
         target_factors,
@@ -68,12 +70,12 @@ def get_conversion_factors(
     Returns a dict mapping terms of lagrangian to the factor that should be
     multiplied 
     """
-    for term, factor in source_factors:
+    for term, factor in source_factors.items():
         _check_contained(term, target_factors)
-        _check_nonzero(factor)
-    for term, factor in target_factors:
+        _check_nonzero(term, factor)
+    for term, factor in target_factors.items():
         _check_contained(term, source_factors)
-        _check_nonzero(factor)
+        _check_nonzero(term, factor)
 
     LT = LagrangianTerms
     OBJ = LT.OBJECTIVE
@@ -88,19 +90,21 @@ def get_conversion_factors(
                 objective_factor*source_factors[EQ]/target_factors[EQ]
                 )
 
+    return conversion_factors
 
 
 class LagrangianChecker(object):
 
-    def __init__(model, multiplier_suffix_map):
+    def __init__(self, model, multiplier_suffix_map):
         self._model = model
         self._multiplier_suffix_map = multiplier_suffix_map
 
-    def _check_compatible_convention(convention):
+    def _check_compatible_convention(self, convention):
         suffix_map = self._multiplier_suffix_map
         for term in convention:
-            if term not in suffix_map:
-                raise RuntimeError(
+            if term != LagrangianTerms.OBJECTIVE:
+                if term not in suffix_map:
+                    raise RuntimeError(
                         "Was not provided a suffix for Lagrangian term %s."
                         % term
                         )
@@ -160,9 +164,11 @@ class LagrangianChecker(object):
         EQ = LT.EQUALITY
         if EQ in convention:
             for con, mult in suffix_map[EQ].items():
-                grad = reverse_ad(obj.expr)
+                grad = reverse_ad(con.body-con.upper)
                 for var, val in grad.items():
                     if var in derivs:
                         derivs[var] += (
-                                convention[EQ]*mult*(con.body - con.upper)
+                                convention[EQ]*mult*val
                                 )
+
+        return derivs
