@@ -183,10 +183,19 @@ class TestModel(unittest.TestCase):
                         pyo.value(con.upper)+tol,
                         )
 
-    def _test_solver(self, solver):
-        # Make model with suffixes
-        m = self._make_model()
-        multiplier_map = _add_multiplier_suffixes(m)
+    def _test_solver(self, solver, model_info=None):
+        """
+        model_info is a tuple containing the model and the
+        "multiplier map" dictionary.
+        """
+        if model_info is None:
+            # Make model with suffixes
+            m = self._make_model()
+            multiplier_map = _add_multiplier_suffixes(m)
+        else:
+            # If we want to make a model with custom suffixes
+            # for a specific (non-dummy, presumably) solver.
+            m, multiplier_map = model_info
 
         # Solve and assertFeasible
         solver.solve(m)
@@ -292,6 +301,33 @@ class TestModel2(TestModel):
     def test_solver_2(self):
         solver = MockSolver2()
         self._test_solver(solver)
+
+    @unittest.skipUnless(pyo.SolverFactory("ipopt").available(),
+            "IPOPT is not available")
+    def test_ipopt(self):
+        solver = pyo.SolverFactory("ipopt")
+        LT = LagrangianTerms
+        IC = InequalityConvention
+        solver.convention = {
+                LT.OBJECTIVE: 1.0,
+                LT.EQUALITY: -1.0,
+                LT.PRIMAL_BOUND_LOWER: -1.0,
+                LT.PRIMAL_BOUND_UPPER: -1.0,
+                }
+        solver.bound_convention = {
+                LT.PRIMAL_BOUND_LOWER: IC.GREATER_THAN_ZERO,
+                LT.PRIMAL_BOUND_UPPER: IC.LESS_THAN_ZERO,
+                }
+        m = self._make_model()
+        m.dual = pyo.Suffix(direction=pyo.Suffix.IMPORT)
+        m.ipopt_zL_out = pyo.Suffix(direction=pyo.Suffix.IMPORT)
+        m.ipopt_zU_out = pyo.Suffix(direction=pyo.Suffix.IMPORT)
+        multiplier_map = {
+                LT.EQUALITY: m.dual,
+                LT.PRIMAL_BOUND_LOWER: m.ipopt_zL_out,
+                LT.PRIMAL_BOUND_UPPER: m.ipopt_zU_out,
+                }
+        self._test_solver(solver, model_info=(m, multiplier_map))
 
 
 if __name__ == "__main__":
