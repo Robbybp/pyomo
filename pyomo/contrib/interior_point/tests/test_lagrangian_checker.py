@@ -34,6 +34,8 @@ class MockSolver(object):
     def solve(self, model):
         if model._model_id == 1:
             self._solve_model_1(model)
+        elif model._model_id == 2:
+            self._solve_model_2(model)
         else:
             raise RuntimeError()
 
@@ -60,12 +62,24 @@ class MockSolver1(MockSolver):
     convention = {
             _LT.OBJECTIVE: 1.0,
             _LT.EQUALITY: 1.0,
+            _LT.PRIMAL_BOUND_UPPER: 1.0,
+            _LT.PRIMAL_BOUND_LOWER: 1.0,
             }
 
     def _solve_model_1(self, model):
+        # Values obtained by solving by hand
         model.dual[model.eq_con] = -2.82842712
         model.v1 = 1.18920712
         model.v2 = 0.84089642
+
+    def _solve_model_2(self, model):
+        # Values obtained by solving by hand, with a priori knowledge
+        # of active set. Validated with Ipopt.
+        model.v1 = 2.0
+        model.v2 = 0.5
+        model.dual[model.eq_con] = -1.0
+        model.dual_lb[model.v1] = 3.5
+        model.dual_lb[model.v2] = 0.0
 
 
 class MockSolver2(MockSolver):
@@ -82,10 +96,10 @@ class MockSolver2(MockSolver):
 
     (i) and (iii) imply that bounds and inequality constraints are
     reformulated into:
-    x_L - x    <= 0
-    x_U - x    >= 0
-    c_L - c(x) <= 0
-    c_U - c(x) >= 0
+    x - x_L    >= 0
+    x - x_U    <= 0
+    c(x) - c_L >= 0
+    c(x) - c_U <= 0
 
     This is the convention used by IPOPT's AMPL interface, CPLEX, and
     Gurobi.
@@ -95,12 +109,23 @@ class MockSolver2(MockSolver):
     convention = {
             _LT.OBJECTIVE: 1.0,
             _LT.EQUALITY: -1.0,
+            _LT.PRIMAL_BOUND_UPPER: -1.0,
+            _LT.PRIMAL_BOUND_LOWER: -1.0,
             }
 
     def _solve_model_1(self, model):
         model.dual[model.eq_con] = 2.82842712
         model.v1 = 1.18920712
         model.v2 = 0.84089642
+
+    def _solve_model_2(self, model):
+        # Values obtained by solving by hand, with a priori knowledge
+        # of active set. Validated with Ipopt.
+        model.v1 = 2.0
+        model.v2 = 0.5
+        model.dual[model.eq_con] = 1.0
+        model.dual_lb[model.v1] = 3.5
+        model.dual_lb[model.v2] = 0.0
 
 
 class TestModel(unittest.TestCase):
@@ -271,14 +296,37 @@ class TestModel2(TestModel):
 
     def _make_model(self):
         m = pyo.ConcreteModel()
-        m.v1 = pyo.Var(initialize=1.5)
-        m.v2 = pyo.Var(initialize=1.5)
+        m.v1 = pyo.Var(initialize=1.5, bounds=(2.0, None))
+        m.v2 = pyo.Var(initialize=1.5, bounds=(0.0, None))
         m.eq_con = pyo.Constraint(expr=m.v1*m.v2 - 1 == 0)
         m.obj = pyo.Objective(expr=m.v1**2 + 2*m.v2**2, sense=pyo.minimize)
     
         # Add an "id" tag so my "solver" can hard-code the correct multipliers.
         m._model_id = 2
         return m
+
+    def test_solver_1(self):
+        m = self._make_model()
+        multiplier_map = _add_multiplier_suffixes(m)
+
+        solver = MockSolver1()
+        solver.solve(m)
+
+        self.assertFeasible(m, tol=1e-8)
+
+        lag_check = LagrangianChecker(m, multiplier_map)
+
+        # TODO: implement bound terms in LagrangianChecker
+        grad_lag = lag_check.get_gradient_lagrangian(solver.convention)
+        n_primals = len(grad_lag)
+        
+        self.assertEqual(n_primals, 2)
+
+        self.assertStructuredAlmostEqual(
+                list(grad_lag.values()),
+                [0.0]*n_primals,
+                delta=1e-7,
+                )
 
 
 if __name__ == "__main__":
