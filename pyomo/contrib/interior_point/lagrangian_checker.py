@@ -17,6 +17,7 @@ from pyomo.core.base.var import Var
 from pyomo.core.base.constraint import Constraint
 from pyomo.core.expr.calculus.diff_with_pyomo import reverse_ad
 from pyomo.common.collections import ComponentMap
+from pyomo.core.kernel.objective import minimize, maximize
 
 class LagrangianTerms(enum.Enum):
     OBJECTIVE = 0
@@ -30,6 +31,16 @@ class LagrangianTerms(enum.Enum):
     PRIMAL_BOUND_LOWER = 8
     SLACK_BOUND_UPPER = 9
     SLACK_BOUND_LOWER = 10
+
+
+class InequalityConvention(enum.Enum):
+    LESS_THAN_ZERO = 0
+    GREATER_THAN_ZERO = 1
+
+
+class BoundDirection(enum.Enum):
+    LOWER = 0
+    UPPER = 1
 
 
 def _check_nonzero(term, factor):
