@@ -33,7 +33,10 @@ def _add_multiplier_suffixes(model):
 
 
 class MockSolver(object):
-
+    """
+    The purpose of this class is just to not repeat the following
+    solve method for all the mock solvers in this module.
+    """
     def solve(self, model):
         if model._model_id == 1:
             self._solve_model_1(model)
@@ -122,8 +125,8 @@ class MockSolver2(MockSolver):
             _LT.PRIMAL_BOUND_LOWER: -1.0,
             }
     bound_convention = {
-            _LT.PRIMAL_BOUND_UPPER: _IC.GREATER_THAN_ZERO,
-            _LT.PRIMAL_BOUND_LOWER: _IC.LESS_THAN_ZERO,
+            _LT.PRIMAL_BOUND_LOWER: _IC.GREATER_THAN_ZERO,
+            _LT.PRIMAL_BOUND_UPPER: _IC.LESS_THAN_ZERO,
             }
 
     def _solve_model_1(self, model):
@@ -142,6 +145,10 @@ class MockSolver2(MockSolver):
 
 
 class TestModel(unittest.TestCase):
+    """
+    This class adds the assertFeasible method and some utilities
+    to test a given solver with a given model.
+    """
     def assertFeasible(self, model, tol=None):
         if tol is None:
             tol = 0.0
@@ -176,6 +183,31 @@ class TestModel(unittest.TestCase):
                         pyo.value(con.upper)+tol,
                         )
 
+    def _test_solver(self, solver):
+        # Make model with suffixes
+        m = self._make_model()
+        multiplier_map = _add_multiplier_suffixes(m)
+
+        # Solve and assertFeasible
+        solver.solve(m)
+        self.assertFeasible(m, tol=1e-8)
+
+        # Create gradient-of-Lagrangian data structure
+        lag_check = LagrangianChecker(m, multiplier_map)
+        grad_lag = lag_check.get_gradient_lagrangian(solver.convention,
+                bound_convention=solver.bound_convention)
+        n_primals = len(grad_lag)
+        
+        # Assert gradient-of-Lagrangian is what we expect (zero)
+        self.assertEqual(n_primals, 2)
+        self.assertStructuredAlmostEqual(
+                list(grad_lag.values()),
+                [0.0]*n_primals,
+                delta=1e-7,
+                )
+
+        return lag_check
+
 
 class TestModel1(TestModel):
 
@@ -191,100 +223,31 @@ class TestModel1(TestModel):
         return m
 
     def test_solver_1(self):
-        m = self._make_model()
-        multiplier_map = _add_multiplier_suffixes(m)
-
         solver = MockSolver1()
-        solver.solve(m)
-
-        self.assertFeasible(m, tol=1e-8)
-
-        lag_check = LagrangianChecker(m, multiplier_map)
-
-        grad_lag = lag_check.get_gradient_lagrangian(solver.convention,
-                solver.bound_convention)
-        n_primals = len(grad_lag)
-        
-        self.assertEqual(n_primals, 2)
-
-        self.assertStructuredAlmostEqual(
-                list(grad_lag.values()),
-                [0.0]*n_primals,
-                delta=1e-7,
-                )
+        self._test_solver(solver)
 
     def test_solver_2(self):
-        m = self._make_model()
-        multiplier_map = _add_multiplier_suffixes(m)
-
         solver = MockSolver2()
-        solver.solve(m)
-
-        self.assertFeasible(m, tol=1e-8)
-
-        lag_check = LagrangianChecker(m, multiplier_map)
-
-        grad_lag = lag_check.get_gradient_lagrangian(solver.convention,
-                solver.bound_convention)
-        n_primals = len(grad_lag)
-        
-        self.assertEqual(n_primals, 2)
-
-        self.assertStructuredAlmostEqual(
-                list(grad_lag.values()),
-                [0.0]*n_primals,
-                delta=1e-7,
-                )
+        self._test_solver(solver)
 
     @unittest.skipUnless(pyo.SolverFactory("ipopt").available(),
             "IPOPT is not available")
     def test_ipopt(self):
-        m = self._make_model()
-        multiplier_map = _add_multiplier_suffixes(m)
-
         solver = pyo.SolverFactory("ipopt")
-        solver.solve(m)
-
         LT = LagrangianTerms
-        ipopt_convention = {
+        solver.convention = {
                 LT.OBJECTIVE: 1.0,
                 LT.EQUALITY: -1.0,
                 }
-        # As this model only has equality constraints, it is only
-        # necessary to specify the convention this far.
-
-        self.assertAlmostEqual(m.dual[m.eq_con], 2.82842712, delta=1e-7)
-
-        self.assertFeasible(m, tol=1e-8)
-        lag_check = LagrangianChecker(m, multiplier_map)
-        grad_lag = lag_check.get_gradient_lagrangian(ipopt_convention)
-        n_primals = len(grad_lag)
-        self.assertStructuredAlmostEqual(
-                list(grad_lag.values()),
-                [0.0]*n_primals,
-                delta=1e-7,
-                )
+        solver.bound_convention = {}
+        self._test_solver(solver)
 
     def test_convert_multipliers_1_to_2(self):
-        m = self._make_model()
-        multiplier_map = _add_multiplier_suffixes(m)
-
         solver1 = MockSolver1()
-        solver1.solve(m)
-
         solver2 = MockSolver2()
-
-        self.assertFeasible(m, tol=1e-8)
-        lag_check = LagrangianChecker(m, multiplier_map)
-        grad_lag = lag_check.get_gradient_lagrangian(solver1.convention,
-                solver1.bound_convention)
-        n_primals = len(grad_lag)
-        self.assertEqual(n_primals, 2)
-        self.assertStructuredAlmostEqual(
-                list(grad_lag.values()),
-                [0.0]*n_primals,
-                delta=1e-7,
-                )
+        lag_check = self._test_solver(solver1)
+        m = lag_check._model
+        multiplier_map = lag_check._multiplier_suffix_map
 
         conv_factors = get_multiplier_conversion_factors(
                 solver1.convention,
@@ -323,27 +286,12 @@ class TestModel2(TestModel):
         return m
 
     def test_solver_1(self):
-        m = self._make_model()
-        multiplier_map = _add_multiplier_suffixes(m)
-
         solver = MockSolver1()
-        solver.solve(m)
+        self._test_solver(solver)
 
-        self.assertFeasible(m, tol=1e-8)
-
-        lag_check = LagrangianChecker(m, multiplier_map)
-
-        grad_lag = lag_check.get_gradient_lagrangian(solver.convention,
-                bound_convention=solver.bound_convention)
-        n_primals = len(grad_lag)
-        
-        self.assertEqual(n_primals, 2)
-
-        self.assertStructuredAlmostEqual(
-                list(grad_lag.values()),
-                [0.0]*n_primals,
-                delta=1e-7,
-                )
+    def test_solver_2(self):
+        solver = MockSolver2()
+        self._test_solver(solver)
 
 
 if __name__ == "__main__":
