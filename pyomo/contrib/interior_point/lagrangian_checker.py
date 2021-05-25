@@ -59,11 +59,6 @@ class InequalityConvention(enum.Enum):
     GREATER_THAN_ZERO = 1
 
 
-class BoundDirection(enum.Enum):
-    LOWER = 0
-    UPPER = 1
-
-
 def _check_nonzero(term, factor):
     if factor == 0:
         raise ValueError(
@@ -191,7 +186,6 @@ class LagrangianChecker(object):
         self._check_compatible_convention(convention,
                 bound_convention=bound_convention)
         LT = LagrangianTerms
-        BD = BoundDirection
         IC = InequalityConvention
 
         term_exprs = []
@@ -263,7 +257,6 @@ class LagrangianChecker(object):
         self._check_compatible_convention(convention,
                 bound_convention=bound_convention)
         LT = LagrangianTerms
-        BD = BoundDirection
         IC = InequalityConvention
 
         if bound_convention is None:
