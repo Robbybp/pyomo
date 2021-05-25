@@ -114,25 +114,47 @@ class LagrangianChecker(object):
         suffix_map = self._multiplier_suffix_map
         for term in convention:
             if term != LagrangianTerms.OBJECTIVE:
+                # Make sure every non-objective term the solver expects
+                # has a suffix for the multiplier values.
+                #
+                # Extra suffixes are fine.
                 if term not in suffix_map:
                     raise RuntimeError(
                         "Was not provided a suffix for Lagrangian term %s."
                         % term
                         )
 
-    def get_lagrangian(self, convention):
+    def get_lagrangian(self, convention, bound_convention=None):
         model = self._model
         suffix_map = self._multiplier_suffix_map
         self._check_compatible_convention(convention)
         LT = LagrangianTerms
+        BD = BoundDirection
+        IC = InequalityConvention
 
         term_exprs = []
+
+        objective_list = list(
+                model.component_data_objects(Objective, active=True)
+                )
+        if len(objective_list) == 1:
+            # Only infer sense from objective if exactly one objective is
+            # provided. Unclear if anything other than this should be
+            # supported.
+            obj_sense = objective_list[0].sense
+        else:
+            # Not sure if anything else should be supported...
+            raise RuntimeError()
+
+        if obj_sense in bound_convention:
+            bound_convention = bound_convention[obj_sense]
+        if obj_sense in convention:
+            convention = convention[obj_sense]
 
         OBJ = LT.OBJECTIVE
         if OBJ in convention:
             term_exprs.append(convention[OBJ]*sum(
-                obj.expr for obj in
-                model.component_data_objects(Objective, active=True)
+                obj.expr for obj in objective_list
                 ))
 
         EQ = LT.EQUALITY
@@ -148,9 +170,29 @@ class LagrangianChecker(object):
                 for con, mult in suffix_map[EQ].items()
                 ))
 
+        UB = LT.PRIMAL_BOUND_UPPER
+        if UB in convention:
+            # Solver uses primal upper bounds in objective.
+            if BD.UPPER in bound_convention:
+                # TODO: Make sure "convention" and "bound_convention"
+                # are compatible so this check isn't necessary.
+                if bound_convention[BD.UPPER] == IC.LESS_THAN_ZERO:
+                    term_exprs.append(convention[UB]*sum(
+                        mult*(var - var.ub)
+                        for var, mult in suffix_map[UB].items()
+                        ))
+                elif bound_convention[BD.UPPER] == IC.GREATER_THAN_ZERO:
+                    term_exprs.append(convention[UB]*sum(
+                        mult*(var.ub - var)
+                        for var, mult in suffix_map[UB].items()
+                        ))
+                else:
+                    raise RuntimeError()
+
+
         return sum(term_exprs)
 
-    def get_gradient_lagrangian(self, convention):
+    def get_gradient_lagrangian(self, convention, bound_convention=None):
         """
         Gradient of the Lagrangian with respect to primal variables,
         according to the provided convention.
@@ -159,6 +201,27 @@ class LagrangianChecker(object):
         suffix_map = self._multiplier_suffix_map
         self._check_compatible_convention(convention)
         LT = LagrangianTerms
+        BD = BoundDirection
+        IC = InequalityConvention
+
+        term_exprs = []
+
+        objective_list = list(
+                model.component_data_objects(Objective, active=True)
+                )
+        if len(objective_list) == 1:
+            # Only infer sense from objective if exactly one objective is
+            # provided. Unclear if anything other than this should be
+            # supported.
+            obj_sense = objective_list[0].sense
+        else:
+            # Not sure if anything else should be supported...
+            raise RuntimeError()
+
+        if obj_sense in bound_convention:
+            bound_convention = bound_convention[obj_sense]
+        if obj_sense in convention:
+            convention = convention[obj_sense]
 
         derivs = ComponentMap([
             (var, 0.0) for var in model.component_data_objects(Var)
@@ -181,5 +244,19 @@ class LagrangianChecker(object):
                         derivs[var] += (
                                 convention[EQ]*mult*val
                                 )
+
+        UB = LT.PRIMAL_BOUND_UPPER
+        if UB in convention:
+            if BD.UPPER in bound_convention:
+                if bound_convention[BD.UPPER] == IC.LESS_THAN_ZERO:
+                    # x - xU <= 0
+                    deriv_factor = 1.0
+                elif bound_convention[BD.UPPER] == IC.GREATHER_THAN_ZERO:
+                    # xU - x >= 0
+                    deriv_factor = -1.0
+                for var, mult in suffix_map[UB].items():
+                    derivs[var] += (
+                            convention[UB]*deriv_factor*mult
+                            )
 
         return derivs
