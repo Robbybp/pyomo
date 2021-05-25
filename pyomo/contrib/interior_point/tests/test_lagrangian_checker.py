@@ -13,6 +13,7 @@ import pyomo.common.unittest as unittest
 import pyomo.environ as pyo
 from pyomo.contrib.interior_point.lagrangian_checker import (
         LagrangianTerms,
+        InequalityConvention,
         LagrangianChecker,
         get_multiplier_conversion_factors,
         )
@@ -26,6 +27,8 @@ def _add_multiplier_suffixes(model):
     LT = LagrangianTerms
     return {
             LT.EQUALITY: model.dual,
+            LT.PRIMAL_BOUND_LOWER: model.dual_lb,
+            LT.PRIMAL_BOUND_UPPER: model.dual_ub,
             }
 
 
@@ -59,11 +62,16 @@ class MockSolver1(MockSolver):
     """
 
     _LT = LagrangianTerms
+    _IC = InequalityConvention
     convention = {
             _LT.OBJECTIVE: 1.0,
             _LT.EQUALITY: 1.0,
             _LT.PRIMAL_BOUND_UPPER: 1.0,
             _LT.PRIMAL_BOUND_LOWER: 1.0,
+            }
+    bound_convention = {
+            _LT.PRIMAL_BOUND_UPPER: _IC.LESS_THAN_ZERO,
+            _LT.PRIMAL_BOUND_LOWER: _IC.LESS_THAN_ZERO,
             }
 
     def _solve_model_1(self, model):
@@ -104,13 +112,18 @@ class MockSolver2(MockSolver):
     This is the convention used by IPOPT's AMPL interface, CPLEX, and
     Gurobi.
     """
-    
+
     _LT = LagrangianTerms
+    _IC = InequalityConvention
     convention = {
             _LT.OBJECTIVE: 1.0,
             _LT.EQUALITY: -1.0,
             _LT.PRIMAL_BOUND_UPPER: -1.0,
             _LT.PRIMAL_BOUND_LOWER: -1.0,
+            }
+    bound_convention = {
+            _LT.PRIMAL_BOUND_UPPER: _IC.GREATER_THAN_ZERO,
+            _LT.PRIMAL_BOUND_LOWER: _IC.LESS_THAN_ZERO,
             }
 
     def _solve_model_1(self, model):
@@ -188,7 +201,8 @@ class TestModel1(TestModel):
 
         lag_check = LagrangianChecker(m, multiplier_map)
 
-        grad_lag = lag_check.get_gradient_lagrangian(solver.convention)
+        grad_lag = lag_check.get_gradient_lagrangian(solver.convention,
+                solver.bound_convention)
         n_primals = len(grad_lag)
         
         self.assertEqual(n_primals, 2)
@@ -210,7 +224,8 @@ class TestModel1(TestModel):
 
         lag_check = LagrangianChecker(m, multiplier_map)
 
-        grad_lag = lag_check.get_gradient_lagrangian(solver.convention)
+        grad_lag = lag_check.get_gradient_lagrangian(solver.convention,
+                solver.bound_convention)
         n_primals = len(grad_lag)
         
         self.assertEqual(n_primals, 2)
@@ -261,7 +276,8 @@ class TestModel1(TestModel):
 
         self.assertFeasible(m, tol=1e-8)
         lag_check = LagrangianChecker(m, multiplier_map)
-        grad_lag = lag_check.get_gradient_lagrangian(solver1.convention)
+        grad_lag = lag_check.get_gradient_lagrangian(solver1.convention,
+                solver1.bound_convention)
         n_primals = len(grad_lag)
         self.assertEqual(n_primals, 2)
         self.assertStructuredAlmostEqual(
@@ -282,7 +298,8 @@ class TestModel1(TestModel):
             for comp in suffix:
                 suffix[comp] *= factor
 
-        grad_lag = lag_check.get_gradient_lagrangian(solver2.convention)
+        grad_lag = lag_check.get_gradient_lagrangian(solver2.convention,
+                solver2.bound_convention)
         n_primals = len(grad_lag)
         self.assertEqual(n_primals, 2)
         self.assertStructuredAlmostEqual(
@@ -316,8 +333,8 @@ class TestModel2(TestModel):
 
         lag_check = LagrangianChecker(m, multiplier_map)
 
-        # TODO: implement bound terms in LagrangianChecker
-        grad_lag = lag_check.get_gradient_lagrangian(solver.convention)
+        grad_lag = lag_check.get_gradient_lagrangian(solver.convention,
+                bound_convention=solver.bound_convention)
         n_primals = len(grad_lag)
         
         self.assertEqual(n_primals, 2)
