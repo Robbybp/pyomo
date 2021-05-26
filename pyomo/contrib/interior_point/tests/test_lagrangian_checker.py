@@ -43,6 +43,8 @@ class MockSolver(object):
             self._solve_model_1(model)
         elif model._model_id == 2:
             self._solve_model_2(model)
+        elif model._model_id == 3:
+            self._solve_model_3(model)
         else:
             raise RuntimeError()
 
@@ -95,6 +97,15 @@ class MockSolver1(MockSolver):
         model.dual[model.eq_con] = -1.0
         model.dual_lb[model.v1] = 3.5
         model.dual_lb[model.v2] = 0.0
+
+    def _solve_model_3(self, model):
+        # Values obtained by solving by hand.
+        model.v1 = -2.0
+        model.v2 = 1.5
+        model.v3 = -2.0/3.0
+        model.dual[model.eq_con] = 4.0/9.0
+        model.dual_ub[model.v1] = -32.0/9.0
+        model.dual_lb[model.v2] = -65.0/27.0
 
 
 class MockSolver2(MockSolver):
@@ -149,6 +160,15 @@ class MockSolver2(MockSolver):
         model.dual[model.eq_con] = 1.0
         model.dual_lb[model.v1] = 3.5
         model.dual_lb[model.v2] = 0.0
+
+    def _solve_model_3(self, model):
+        # Values obtained by solving by hand.
+        model.v1 = -2.0
+        model.v2 = 1.5
+        model.v3 = -2.0/3.0
+        model.dual[model.eq_con] = -4.0/9.0
+        model.dual_ub[model.v1] = 32.0/9.0
+        model.dual_lb[model.v2] = -65.0/27.0
 
 
 class TestModel(unittest.TestCase):
@@ -214,7 +234,9 @@ class TestModel(unittest.TestCase):
         n_primals = len(grad_lag)
         
         # Assert gradient-of-Lagrangian is what we expect (zero)
-        self.assertEqual(n_primals, 2)
+        n_vars = len([v for v in m.component_data_objects(pyo.Var)
+            if not v.fixed])
+        self.assertEqual(n_primals, n_vars)
         self.assertStructuredAlmostEqual(
                 list(grad_lag.values()),
                 [0.0]*n_primals,
@@ -222,6 +244,40 @@ class TestModel(unittest.TestCase):
                 )
 
         return lag_check
+
+    def _test_convert_multipliers(self, solver1, solver2, model_info=None):
+        # Test that the first solver can solve the model, and that
+        # its convention and the provided multipliers lead to a consistent
+        # Lagrangian gradient.
+        lag_check = self._test_solver(solver1, model_info=model_info)
+        m = lag_check._model
+        multiplier_map = lag_check._multiplier_suffix_map
+
+        # Get conversion factors between the two solvers' conventions
+        conv_factors = get_multiplier_conversion_factors(
+                solver1.convention,
+                solver2.convention,
+                )
+
+        # Convert multipliers
+        for term, factor in conv_factors.items():
+            suffix = multiplier_map[term]
+            for comp in suffix:
+                suffix[comp] *= factor
+
+        n_var = len([v for v in m.component_data_objects(pyo.Var)
+            if not v.fixed])
+
+        # Check that the gradient of the Lagrangian, now with solver2's
+        # convention, is zero.
+        grad_lag = lag_check.get_gradient_lagrangian(solver2.convention)
+        n_primals = len(grad_lag)
+        self.assertEqual(n_primals, n_var)
+        self.assertStructuredAlmostEqual(
+                list(grad_lag.values()),
+                [0.0]*n_primals,
+                delta=1e-7,
+                )
 
 
 class TestModel1(TestModel):
@@ -263,28 +319,7 @@ class TestModel1(TestModel):
     def test_convert_multipliers_1_to_2(self):
         solver1 = MockSolver1()
         solver2 = MockSolver2()
-        lag_check = self._test_solver(solver1)
-        m = lag_check._model
-        multiplier_map = lag_check._multiplier_suffix_map
-
-        conv_factors = get_multiplier_conversion_factors(
-                solver1.convention,
-                solver2.convention,
-                )
-
-        for term, factor in conv_factors.items():
-            suffix = multiplier_map[term]
-            for comp in suffix:
-                suffix[comp] *= factor
-
-        grad_lag = lag_check.get_gradient_lagrangian(solver2.convention)
-        n_primals = len(grad_lag)
-        self.assertEqual(n_primals, 2)
-        self.assertStructuredAlmostEqual(
-                list(grad_lag.values()),
-                [0.0]*n_primals,
-                delta=1e-7,
-                )
+        self._test_convert_multipliers(solver1, solver2)
 
 
 class TestModel2(TestModel):
@@ -341,28 +376,41 @@ class TestModel2(TestModel):
     def test_convert_multipliers_1_to_2(self):
         solver1 = MockSolver1()
         solver2 = MockSolver2()
-        lag_check = self._test_solver(solver1)
-        m = lag_check._model
-        multiplier_map = lag_check._multiplier_suffix_map
+        self._test_convert_multipliers(solver1, solver2)
 
-        conv_factors = get_multiplier_conversion_factors(
-                solver1.convention,
-                solver2.convention,
-                )
 
-        for term, factor in conv_factors.items():
-            suffix = multiplier_map[term]
-            for comp in suffix:
-                suffix[comp] *= factor
+class TestModel3(TestModel):
+    """
+    This model maximizes its objective function and has an active
+    upper bound at the solution.
+    """
 
-        grad_lag = lag_check.get_gradient_lagrangian(solver2.convention)
-        n_primals = len(grad_lag)
-        self.assertEqual(n_primals, 2)
-        self.assertStructuredAlmostEqual(
-                list(grad_lag.values()),
-                [0.0]*n_primals,
-                delta=1e-7,
-                )
+    def _make_model(self):
+        m = pyo.ConcreteModel()
+        m.v1 = pyo.Var(initialize=-2.5, bounds=(None, -2.0))
+        m.v2 = pyo.Var(initialize=2.5, bounds=(1.5, None))
+        m.v3 = pyo.Var(initialize=-2.5, bounds=(None, 0.0))
+
+        m.eq_con = pyo.Constraint(expr=m.v1*m.v2*m.v3 - 2.0 == 0)
+        m.obj = pyo.Objective(expr=-m.v1**2 - m.v2**2 - m.v3**2,
+                sense=pyo.maximize)
+    
+        # Add an "id" tag so my "solver" can hard-code the correct multipliers.
+        m._model_id = 3
+        return m
+
+    def test_solver_1(self):
+        solver = MockSolver1()
+        self._test_solver(solver)
+
+    def test_solver_2(self):
+        solver = MockSolver2()
+        self._test_solver(solver)
+
+    def test_convert_multipliers_1_to_2(self):
+        solver1 = MockSolver1()
+        solver2 = MockSolver2()
+        self._test_convert_multipliers(solver1, solver2)
 
 
 if __name__ == "__main__":
