@@ -16,6 +16,7 @@ from pyomo.contrib.interior_point.lagrangian_checker import (
         LagrangianTerms,
         InequalityConvention,
         LagrangianChecker,
+        ObjectiveSense,
         get_multiplier_conversion_factors,
         )
 
@@ -169,6 +170,57 @@ class MockSolver2(MockSolver):
         model.dual[model.eq_con] = -4.0/9.0
         model.dual_ub[model.v1] = 32.0/9.0
         model.dual_lb[model.v2] = -65.0/27.0
+
+
+class MockSolver3(MockSolver):
+    """
+    A somewhat pathological solver for testing purposes. This solver
+    changes the form of its Lagrangian depending on whether it is
+    solving maximization or minimization problems. Furthermore,
+    it uses factors for its Lagrangian terms that have magnitudes
+    different than 1.
+
+    This solver uses the following convention for its Lagrangian:
+        (i) The objective has a factor of +1, multiplier terms have
+            factors of +10.
+       (ii) Inequalities are not reformulated into slacks
+      (iii) Bound and inequality multipliers are always positive.
+            
+    (i) and (iii) imply that bounds and inequality constraints are
+    reformulated into ">= 0" form for maximization problems and
+    "<= 0" form for minimization problems.
+    """
+
+    _LT = LagrangianTerms
+    _IC = InequalityConvention
+    _C = Conventions
+    _OS = ObjectiveSense
+    convention = {
+            _OS.MAXIMIZE: {
+                _C.TERM_FACTORS: {
+                    _LT.OBJECTIVE: 1.0,
+                    _LT.EQUALITY: 10.0,
+                    _LT.PRIMAL_BOUND_UPPER: 10.0,
+                    _LT.PRIMAL_BOUND_LOWER: 10.0,
+                    },
+                _C.INEQUALITY_DIRECTION: {
+                    _LT.PRIMAL_BOUND_LOWER: _IC.GREATER_THAN_ZERO,
+                    _LT.PRIMAL_BOUND_UPPER: _IC.GREATER_THAN_ZERO,
+                    },
+                },
+            _OS.MINIMIZE: {
+                _C.TERM_FACTORS: {
+                    _LT.OBJECTIVE: 1.0,
+                    _LT.EQUALITY: 10.0,
+                    _LT.PRIMAL_BOUND_UPPER: 10.0,
+                    _LT.PRIMAL_BOUND_LOWER: 10.0,
+                    },
+                _C.INEQUALITY_DIRECTION: {
+                    _LT.PRIMAL_BOUND_LOWER: _IC.LESS_THAN_ZERO,
+                    _LT.PRIMAL_BOUND_UPPER: _IC.LESS_THAN_ZERO,
+                    },
+                },
+            }
 
 
 class TestModel(unittest.TestCase):
