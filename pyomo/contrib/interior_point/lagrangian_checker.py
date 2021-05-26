@@ -19,7 +19,21 @@ from pyomo.core.expr.calculus.diff_with_pyomo import reverse_ad
 from pyomo.common.collections import ComponentMap
 from pyomo.core.kernel.objective import minimize, maximize
 
+
+class Conventions(enum.Enum):
+    """ The conventions we must be aware of in order to construct a
+    Lagrangian function from a Pyomo model.
+    """
+    TERM_FACTORS = 0
+    INEQUALITY_DIRECTION = 1
+    SLACK_CONVENTION = 2
+
+
 class LagrangianTerms(enum.Enum):
+    # The objective term in the Lagrangian may have an arbitrary nonzero
+    # factor applied to it. If a solver treats maximization problems as
+    # "minimization problems with a negative objective," that should be
+    # reflected in this term's factor for maximization problems.
     OBJECTIVE = 0
 
     # The following terms are due to constraints. Pyomo stores constraints
@@ -77,12 +91,33 @@ def _check_contained(term, factor_dict):
             )
 
 
-def get_multiplier_conversion_factors(
-        source_factors,
-        source_inequality_signs,
-        target_factors,
-        target_inequality_signs,
-        ):
+def _check_compatible_conventions(factors, inequalities):
+    LT = LagrangianTerms
+    equality_terms = {
+            LT.EQUALITY,
+            LT.INEQUALITY_LOWER_PLUS_SLACK,
+            LT.INEQUALITY_UPPER_PLUS_SLACK,
+            LT.INEQUALITY_LOWER_MINUS_SLACK,
+            LT.INEQUALITY_UPPER_MINUS_SLACK,
+            }
+    for term in factors:
+        if term != LT.OBJECTIVE and term not in equality_terms:
+            # Make sure every non-objective, non-equality term
+            # has a convention to reformulate it as ">= 0" or
+            # "<= 0"
+            if term not in inequalities:
+                raise RuntimeError(
+                    "Was not provided an inequality direction\n"
+                    "convention for term %s." % term
+                    )
+
+
+def get_multiplier_conversion_factors(source_convention, target_convention):
+        #source_factors,
+        #source_inequality_signs,
+        #target_factors,
+        #target_inequality_signs,
+        #):
     """
     source_factors and target_factors are factors of each term in the
     Lagrangian function. Theoretically, these factors can be anything
@@ -101,7 +136,24 @@ def get_multiplier_conversion_factors(
     If they do, the conversion may be ambiguous. (What conversion is necessary
     may depend on whether we are maximizing or minimizing.)
     """
-    LT = LagrangianTerms
+    Conv = Conventions
+    # Factors for each term: required
+    source_factors = source_convention[Conv.TERM_FACTORS]
+    target_factors = target_convention[Conv.TERM_FACTORS]
+
+    # Direction for each type of inequality: optional. Not all solvers
+    # support inequalities.
+    source_ineq_form = source_convention.get(Conv.INEQUALITY_DIRECTION, {})
+    target_ineq_form = target_convention.get(Conv.INEQUALITY_DIRECTION, {})
+
+    # TODO: Not sure exactly what will go here. What are the different
+    # conventions for slack variables?
+    source_slack = source_convention.get(Conv.SLACK_CONVENTION, None)
+    target_slack = target_convention.get(Conv.SLACK_CONVENTION, None)
+
+    _check_compatible_conventions(source_factors, source_ineq_form)
+    _check_compatible_conventions(target_factors, target_ineq_form)
+    
     for term, factor in source_factors.items():
         _check_contained(term, target_factors)
         _check_nonzero(term, factor)
@@ -109,6 +161,7 @@ def get_multiplier_conversion_factors(
         _check_contained(term, source_factors)
         _check_nonzero(term, factor)
 
+    LT = LagrangianTerms
     OBJ = LT.OBJECTIVE
     objective_factor = target_factors[OBJ]/source_factors[OBJ]\
             if OBJ in target_factors else 1.0
@@ -123,8 +176,8 @@ def get_multiplier_conversion_factors(
 
     LB = LT.PRIMAL_BOUND_LOWER
     if LB in source_factors:
-        inequality_factor = 1.0 if (source_inequality_signs[LB] ==
-                target_inequality_signs[LB]) else -1.0
+        inequality_factor = 1.0 if (source_ineq_form[LB] ==
+                target_ineq_form[LB]) else -1.0
         conversion_factors[LB] = (
                 objective_factor * inequality_factor *
                 source_factors[LB] / target_factors[LB]
@@ -132,8 +185,8 @@ def get_multiplier_conversion_factors(
     
     UB = LT.PRIMAL_BOUND_UPPER
     if UB in source_factors:
-        inequality_factor = 1.0 if (source_inequality_signs[UB] ==
-                target_inequality_signs[UB]) else -1.0
+        inequality_factor = 1.0 if (source_ineq_form[UB] ==
+                target_ineq_form[UB]) else -1.0
         conversion_factors[UB] = (
                 objective_factor * inequality_factor *
                 source_factors[UB] / target_factors[UB]
@@ -148,13 +201,8 @@ class LagrangianChecker(object):
         self._model = model
         self._multiplier_suffix_map = multiplier_suffix_map
 
-    def _check_compatible_convention(self, convention, bound_convention=None):
+    def _check_compatible_convention(self, convention):
         suffix_map = self._multiplier_suffix_map
-
-        if bound_convention is None:
-            # A bound convention is not required if the model is only
-            # equality constrained
-            bound_convention = {}
 
         OS = ObjectiveSense
         convention_dict = {}
@@ -162,45 +210,32 @@ class LagrangianChecker(object):
 
         # If no sense is specified, assume the provided conventions
         # hold for any objective sense.
-        if all(sense not in convention_dict for sense in OS):
-            for sense in OS:
-                convention_dict[sense] = convention
-        if all(sense not in bound_convention_dict for sense in OS):
-            for sense in OS:
-                bound_convention_dict[sense] = bound_convention
+        if all(sense not in convention for sense in OS):
+            conventions_to_check = [convention]
+            supported_senses = set(OS)
+        else:
+            conventions_to_check = [convention[sense] for sense in OS
+                    if sense in convention]
+            supported_senses = set(s for s in OS if s in convention)
 
-        supported_senses = [s for s in convention_dict
-                if s in bound_convention_dict]
-        conventions_to_check = [(convention_dict[s], bound_convention_dict[s])
-                for s in supported_senses]
-
+        Conv = Conventions
         LT = LagrangianTerms
-        for conv, bound_conv in conventions_to_check:
-            for term in conv:
+        for conv in conventions_to_check:
+            factors = conv[Conv.TERM_FACTORS]
+            inequalities = conv.get(Conv.INEQUALITY_DIRECTION, {})
+            # TODO: Slacks
+
+            _check_compatible_conventions(factors, inequalities)
+
+            for term in factors:
                 if term != LT.OBJECTIVE:
-                    # Make sure every non-objective term the solver expects
-                    # has a suffix for the multiplier values.
-                    #
-                    # Extra suffixes are fine.
                     if term not in suffix_map:
                         raise RuntimeError(
                             "Was not provided a suffix for Lagrangian term %s."
                             % term
                             )
 
-                    if (term != LT.EQUALITY
-                        and term != LT.INEQUALITY_LOWER_PLUS_SLACK
-                        and term != LT.INEQUALITY_UPPER_PLUS_SLACK
-                        and term != LT.INEQUALITY_LOWER_MINUS_SLACK
-                        and term != LT.INEQUALITY_UPPER_MINUS_SLACK):
-                        # Make sure every non-objective, non-equality term
-                        # has a convention to reformulate it as ">= 0" or
-                        # "<= 0"
-                        if term not in bound_conv:
-                            raise RuntimeError(
-                                "Was not provided an inequality direction\n"
-                                "convention for term %s." % term
-                                )
+        return supported_senses
 
     def get_lagrangian(self, convention, bound_convention=None):
         model = self._model
@@ -269,20 +304,19 @@ class LagrangianChecker(object):
 
         return sum(term_exprs)
 
-    def get_gradient_lagrangian(self, convention, bound_convention=None):
+    def get_gradient_lagrangian(self, convention):
         """
         Gradient of the Lagrangian with respect to primal variables,
         according to the provided convention.
         """
+        Conv = Conventions
+
         model = self._model
         suffix_map = self._multiplier_suffix_map
-        self._check_compatible_convention(convention,
-                bound_convention=bound_convention)
+        supported_senses = self._check_compatible_convention(convention)
         LT = LagrangianTerms
         IC = InequalityConvention
-
-        if bound_convention is None:
-            bound_convention = {}
+        OS = ObjectiveSense
 
         term_exprs = []
 
@@ -294,29 +328,37 @@ class LagrangianChecker(object):
             # provided. Unclear if anything other than this should be
             # supported.
             obj_sense = objective_list[0].sense
+            obj_sense = OS.MAXIMIZE if obj_sense == maximize else OS.MINIMIZE
         else:
             # Not sure if anything else should be supported...
             raise RuntimeError()
 
-        if obj_sense in bound_convention:
-            bound_convention = bound_convention[obj_sense]
-        if obj_sense in convention:
-            convention = convention[obj_sense]
+        if obj_sense in supported_senses:
+            if obj_sense in convention:
+                convention = convention[obj_sense]
+        else:
+            # Our objective has a sense that is not supported by the
+            # convention provided.
+            raise RuntimeError()
+
+        factors = convention[Conv.TERM_FACTORS]
+        inequalities = convention.get(Conv.INEQUALITY_DIRECTION, {})
+        # TODO: Slacks
 
         derivs = ComponentMap([
             (var, 0.0) for var in model.component_data_objects(Var)
             if not var.fixed])
 
         OBJ = LT.OBJECTIVE
-        if OBJ in convention:
+        if OBJ in factors:
             for obj in model.component_data_objects(Objective, active=True):
                 grad = reverse_ad(obj.expr)
                 for var, val in grad.items():
                     if var in derivs:
-                        derivs[var] += convention[OBJ]*val
+                        derivs[var] += factors[OBJ]*val
 
         EQ = LT.EQUALITY
-        if EQ in convention:
+        if EQ in factors:
             for con, mult in suffix_map[EQ].items():
                 grad = reverse_ad(con.body-con.upper)
                 for var, val in grad.items():
@@ -324,35 +366,35 @@ class LagrangianChecker(object):
                         # Need to check because reverse_ad may compute
                         # derivatives with respect to fixed vars.
                         derivs[var] += (
-                                convention[EQ]*mult*val
+                                factors[EQ]*mult*val
                                 )
 
         UB = LT.PRIMAL_BOUND_UPPER
-        if UB in convention:
+        if UB in factors:
             # May assume that UB in bound_convention as well
-            if bound_convention[UB] == IC.LESS_THAN_ZERO:
+            if inequalities[UB] == IC.LESS_THAN_ZERO:
                 # x - xU <= 0
                 deriv_factor = 1.0
-            elif bound_convention[UB] == IC.GREATER_THAN_ZERO:
+            elif inequalities[UB] == IC.GREATER_THAN_ZERO:
                 # xU - x >= 0
                 deriv_factor = -1.0
             for var, mult in suffix_map[UB].items():
                 derivs[var] += (
-                        convention[UB]*deriv_factor*mult
+                        factors[UB]*deriv_factor*mult
                         )
 
         LB = LT.PRIMAL_BOUND_LOWER
-        if LB in convention:
+        if LB in factors:
             # May assume that LB in bound_convention as well
-            if bound_convention[LB] == IC.LESS_THAN_ZERO:
+            if inequalities[LB] == IC.LESS_THAN_ZERO:
                 # xL - x <= 0
                 deriv_factor = -1.0
-            elif bound_convention[LB] == IC.GREATER_THAN_ZERO:
+            elif inequalities[LB] == IC.GREATER_THAN_ZERO:
                 # x - xL >= 0
                 deriv_factor = 1.0
             for var, mult in suffix_map[LB].items():
                 derivs[var] += (
-                        convention[LB]*deriv_factor*mult
+                        factors[LB]*deriv_factor*mult
                         )
 
         return derivs

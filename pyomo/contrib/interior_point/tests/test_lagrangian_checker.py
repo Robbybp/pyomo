@@ -12,6 +12,7 @@ import pyomo.common.unittest as unittest
 
 import pyomo.environ as pyo
 from pyomo.contrib.interior_point.lagrangian_checker import (
+        Conventions,
         LagrangianTerms,
         InequalityConvention,
         LagrangianChecker,
@@ -66,15 +67,18 @@ class MockSolver1(MockSolver):
 
     _LT = LagrangianTerms
     _IC = InequalityConvention
+    _C = Conventions
     convention = {
-            _LT.OBJECTIVE: 1.0,
-            _LT.EQUALITY: 1.0,
-            _LT.PRIMAL_BOUND_UPPER: 1.0,
-            _LT.PRIMAL_BOUND_LOWER: 1.0,
-            }
-    bound_convention = {
-            _LT.PRIMAL_BOUND_UPPER: _IC.LESS_THAN_ZERO,
-            _LT.PRIMAL_BOUND_LOWER: _IC.LESS_THAN_ZERO,
+            _C.TERM_FACTORS: {
+                _LT.OBJECTIVE: 1.0,
+                _LT.EQUALITY: 1.0,
+                _LT.PRIMAL_BOUND_UPPER: 1.0,
+                _LT.PRIMAL_BOUND_LOWER: 1.0,
+                },
+            _C.INEQUALITY_DIRECTION: {
+                _LT.PRIMAL_BOUND_UPPER: _IC.LESS_THAN_ZERO,
+                _LT.PRIMAL_BOUND_LOWER: _IC.LESS_THAN_ZERO,
+                },
             }
 
     def _solve_model_1(self, model):
@@ -118,15 +122,18 @@ class MockSolver2(MockSolver):
 
     _LT = LagrangianTerms
     _IC = InequalityConvention
+    _C = Conventions
     convention = {
-            _LT.OBJECTIVE: 1.0,
-            _LT.EQUALITY: -1.0,
-            _LT.PRIMAL_BOUND_UPPER: -1.0,
-            _LT.PRIMAL_BOUND_LOWER: -1.0,
-            }
-    bound_convention = {
-            _LT.PRIMAL_BOUND_LOWER: _IC.GREATER_THAN_ZERO,
-            _LT.PRIMAL_BOUND_UPPER: _IC.LESS_THAN_ZERO,
+            _C.TERM_FACTORS: {
+                _LT.OBJECTIVE: 1.0,
+                _LT.EQUALITY: -1.0,
+                _LT.PRIMAL_BOUND_UPPER: -1.0,
+                _LT.PRIMAL_BOUND_LOWER: -1.0,
+                },
+            _C.INEQUALITY_DIRECTION: {
+                _LT.PRIMAL_BOUND_LOWER: _IC.GREATER_THAN_ZERO,
+                _LT.PRIMAL_BOUND_UPPER: _IC.LESS_THAN_ZERO,
+                },
             }
 
     def _solve_model_1(self, model):
@@ -203,8 +210,7 @@ class TestModel(unittest.TestCase):
 
         # Create gradient-of-Lagrangian data structure
         lag_check = LagrangianChecker(m, multiplier_map)
-        grad_lag = lag_check.get_gradient_lagrangian(solver.convention,
-                bound_convention=solver.bound_convention)
+        grad_lag = lag_check.get_gradient_lagrangian(solver.convention)
         n_primals = len(grad_lag)
         
         # Assert gradient-of-Lagrangian is what we expect (zero)
@@ -244,11 +250,14 @@ class TestModel1(TestModel):
     def test_ipopt(self):
         solver = pyo.SolverFactory("ipopt")
         LT = LagrangianTerms
+        Conv = Conventions
         solver.convention = {
-                LT.OBJECTIVE: 1.0,
-                LT.EQUALITY: -1.0,
+                Conv.TERM_FACTORS: {
+                    LT.OBJECTIVE: 1.0,
+                    LT.EQUALITY: -1.0,
+                    }
                 }
-        solver.bound_convention = {}
+        #solver.bound_convention = {}
         self._test_solver(solver)
 
     def test_convert_multipliers_1_to_2(self):
@@ -260,9 +269,7 @@ class TestModel1(TestModel):
 
         conv_factors = get_multiplier_conversion_factors(
                 solver1.convention,
-                solver1.bound_convention,
                 solver2.convention,
-                solver2.bound_convention,
                 )
 
         for term, factor in conv_factors.items():
@@ -270,8 +277,7 @@ class TestModel1(TestModel):
             for comp in suffix:
                 suffix[comp] *= factor
 
-        grad_lag = lag_check.get_gradient_lagrangian(solver2.convention,
-                solver2.bound_convention)
+        grad_lag = lag_check.get_gradient_lagrangian(solver2.convention)
         n_primals = len(grad_lag)
         self.assertEqual(n_primals, 2)
         self.assertStructuredAlmostEqual(
@@ -308,15 +314,18 @@ class TestModel2(TestModel):
         solver = pyo.SolverFactory("ipopt")
         LT = LagrangianTerms
         IC = InequalityConvention
+        Conv = Conventions
         solver.convention = {
-                LT.OBJECTIVE: 1.0,
-                LT.EQUALITY: -1.0,
-                LT.PRIMAL_BOUND_LOWER: -1.0,
-                LT.PRIMAL_BOUND_UPPER: -1.0,
-                }
-        solver.bound_convention = {
-                LT.PRIMAL_BOUND_LOWER: IC.GREATER_THAN_ZERO,
-                LT.PRIMAL_BOUND_UPPER: IC.LESS_THAN_ZERO,
+                Conv.TERM_FACTORS: {
+                    LT.OBJECTIVE: 1.0,
+                    LT.EQUALITY: -1.0,
+                    LT.PRIMAL_BOUND_LOWER: -1.0,
+                    LT.PRIMAL_BOUND_UPPER: -1.0,
+                    },
+                Conv.INEQUALITY_DIRECTION: {
+                    LT.PRIMAL_BOUND_LOWER: IC.GREATER_THAN_ZERO,
+                    LT.PRIMAL_BOUND_UPPER: IC.LESS_THAN_ZERO,
+                    },
                 }
         m = self._make_model()
         m.dual = pyo.Suffix(direction=pyo.Suffix.IMPORT)
@@ -338,9 +347,7 @@ class TestModel2(TestModel):
 
         conv_factors = get_multiplier_conversion_factors(
                 solver1.convention,
-                solver1.bound_convention,
                 solver2.convention,
-                solver2.bound_convention,
                 )
 
         for term, factor in conv_factors.items():
@@ -348,8 +355,7 @@ class TestModel2(TestModel):
             for comp in suffix:
                 suffix[comp] *= factor
 
-        grad_lag = lag_check.get_gradient_lagrangian(solver2.convention,
-                solver2.bound_convention)
+        grad_lag = lag_check.get_gradient_lagrangian(solver2.convention)
         n_primals = len(grad_lag)
         self.assertEqual(n_primals, 2)
         self.assertStructuredAlmostEqual(
