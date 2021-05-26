@@ -96,7 +96,12 @@ def get_multiplier_conversion_factors(
 
     Returns a dict mapping terms of lagrangian to the factor that should be
     multiplied 
+
+    We assume that the input data structures do not contain objective senses.
+    If they do, the conversion may be ambiguous. (What conversion is necessary
+    may depend on whether we are maximizing or minimizing.)
     """
+    LT = LagrangianTerms
     for term, factor in source_factors.items():
         _check_contained(term, target_factors)
         _check_nonzero(term, factor)
@@ -104,7 +109,6 @@ def get_multiplier_conversion_factors(
         _check_contained(term, source_factors)
         _check_nonzero(term, factor)
 
-    LT = LagrangianTerms
     OBJ = LT.OBJECTIVE
     objective_factor = target_factors[OBJ]/source_factors[OBJ]\
             if OBJ in target_factors else 1.0
@@ -115,6 +119,24 @@ def get_multiplier_conversion_factors(
     if EQ in source_factors:
         conversion_factors[EQ] = (
                 objective_factor*source_factors[EQ]/target_factors[EQ]
+                )
+
+    LB = LT.PRIMAL_BOUND_LOWER
+    if LB in source_factors:
+        inequality_factor = 1.0 if (source_inequality_signs[LB] ==
+                target_inequality_signs[LB]) else -1.0
+        conversion_factors[LB] = (
+                objective_factor * inequality_factor *
+                source_factors[LB] / target_factors[LB]
+                )
+    
+    UB = LT.PRIMAL_BOUND_UPPER
+    if UB in source_factors:
+        inequality_factor = 1.0 if (source_inequality_signs[UB] ==
+                target_inequality_signs[UB]) else -1.0
+        conversion_factors[UB] = (
+                objective_factor * inequality_factor *
+                source_factors[UB] / target_factors[UB]
                 )
 
     return conversion_factors
