@@ -260,9 +260,9 @@ class TestModel1(TestModel):
 
         conv_factors = get_multiplier_conversion_factors(
                 solver1.convention,
-                None,
+                solver1.bound_convention,
                 solver2.convention,
-                None,
+                solver2.bound_convention,
                 )
 
         for term, factor in conv_factors.items():
@@ -328,6 +328,35 @@ class TestModel2(TestModel):
                 LT.PRIMAL_BOUND_UPPER: m.ipopt_zU_out,
                 }
         self._test_solver(solver, model_info=(m, multiplier_map))
+
+    def test_convert_multipliers_1_to_2(self):
+        solver1 = MockSolver1()
+        solver2 = MockSolver2()
+        lag_check = self._test_solver(solver1)
+        m = lag_check._model
+        multiplier_map = lag_check._multiplier_suffix_map
+
+        conv_factors = get_multiplier_conversion_factors(
+                solver1.convention,
+                solver1.bound_convention,
+                solver2.convention,
+                solver2.bound_convention,
+                )
+
+        for term, factor in conv_factors.items():
+            suffix = multiplier_map[term]
+            for comp in suffix:
+                suffix[comp] *= factor
+
+        grad_lag = lag_check.get_gradient_lagrangian(solver2.convention,
+                solver2.bound_convention)
+        n_primals = len(grad_lag)
+        self.assertEqual(n_primals, 2)
+        self.assertStructuredAlmostEqual(
+                list(grad_lag.values()),
+                [0.0]*n_primals,
+                delta=1e-7,
+                )
 
 
 if __name__ == "__main__":
