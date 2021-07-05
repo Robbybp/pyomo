@@ -278,7 +278,7 @@ class TestModel(unittest.TestCase):
 
         # Solve and assertFeasible
         solver.solve(m)
-        self.assertFeasible(m, tol=1e-8)
+        self.assertFeasible(m, tol=1e-7)
 
         # Create gradient-of-Lagrangian data structure
         lag_check = LagrangianChecker(m, multiplier_map)
@@ -463,6 +463,36 @@ class TestModel3(TestModel):
         solver1 = MockSolver1()
         solver2 = MockSolver2()
         self._test_convert_multipliers(solver1, solver2)
+
+    @unittest.skipUnless(pyo.SolverFactory("ipopt").available(),
+            "IPOPT is not available")
+    def test_ipopt(self):
+        solver = pyo.SolverFactory("ipopt")
+        LT = LagrangianTerms
+        IC = InequalityConvention
+        Conv = Conventions
+        solver.convention = {
+                Conv.TERM_FACTORS: {
+                    LT.OBJECTIVE: 1.0,
+                    LT.EQUALITY: -1.0,
+                    LT.PRIMAL_BOUND_LOWER: -1.0,
+                    LT.PRIMAL_BOUND_UPPER: -1.0,
+                    },
+                Conv.INEQUALITY_DIRECTION: {
+                    LT.PRIMAL_BOUND_LOWER: IC.GREATER_THAN_ZERO,
+                    LT.PRIMAL_BOUND_UPPER: IC.LESS_THAN_ZERO,
+                    },
+                }
+        m = self._make_model()
+        m.dual = pyo.Suffix(direction=pyo.Suffix.IMPORT)
+        m.ipopt_zL_out = pyo.Suffix(direction=pyo.Suffix.IMPORT)
+        m.ipopt_zU_out = pyo.Suffix(direction=pyo.Suffix.IMPORT)
+        multiplier_map = {
+                LT.EQUALITY: m.dual,
+                LT.PRIMAL_BOUND_LOWER: m.ipopt_zL_out,
+                LT.PRIMAL_BOUND_UPPER: m.ipopt_zU_out,
+                }
+        self._test_solver(solver, model_info=(m, multiplier_map))
 
 
 if __name__ == "__main__":
