@@ -64,6 +64,7 @@ class LagrangianTerms(enum.Enum):
 
 
 class ObjectiveSense(enum.Enum):
+    # TODO: Why don't we use pyo.minimize and pyo.maximize again?
     MINIMIZE = 0
     MAXIMIZE = 1
 
