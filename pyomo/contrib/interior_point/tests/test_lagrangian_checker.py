@@ -278,6 +278,18 @@ class MockSolver3(MockSolver):
         model.dual_lb[model.v1] = 3.5/10.0
         model.dual_lb[model.v2] = 0.0
 
+    def _solve_model_3(self, model):
+        model.v1 = -2.0
+        model.v2 = 1.5
+        model.v3 = 2.0/1.5/-2.0
+        lam = pyo.value(2.0*model.v3/(10.0*model.v2*model.v1))
+        nu2 = pyo.value(-1/10.0*(-2*model.v2 + 10*lam*model.v1*model.v3))
+        nu1 = pyo.value(1/10.0*(-2*model.v1 + 10*lam*model.v2*model.v3))
+        model.dual[model.eq_con] = lam
+        model.dual_ub[model.v1] = nu1
+        model.dual_lb[model.v2] = nu2
+        model.dual_lb[model.v3] = 0.0
+
 
 class TestModel(unittest.TestCase):
     """
@@ -510,7 +522,7 @@ class TestModel3(TestModel):
         m.eq_con = pyo.Constraint(expr=m.v1*m.v2*m.v3 - 2.0 == 0)
         m.obj = pyo.Objective(expr=-m.v1**2 - m.v2**2 - m.v3**2,
                 sense=pyo.maximize)
-    
+
         # Add an "id" tag so my "solver" can hard-code the correct multipliers.
         m._model_id = 3
         return m
@@ -521,6 +533,10 @@ class TestModel3(TestModel):
 
     def test_solver_2(self):
         solver = MockSolver2()
+        self._test_solver(solver)
+
+    def test_solver_3(self):
+        solver = MockSolver3()
         self._test_solver(solver)
 
     def test_convert_multipliers_1_to_2(self):
@@ -536,6 +552,13 @@ class TestModel3(TestModel):
         solver.add_multiplier_suffixes(m)
         multiplier_map = solver.get_multiplier_map(m)
         self._test_solver(solver, model_info=(m, multiplier_map))
+
+    @unittest.skipUnless(pyo.SolverFactory("ipopt").available(),
+            "IPOPT is not available")
+    def test_convert_multipliers_3_to_ipopt(self):
+        solver = IpoptWithConvention()
+        solver3 = MockSolver3()
+        self._test_convert_multipliers(solver3, solver)
 
 
 if __name__ == "__main__":
