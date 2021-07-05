@@ -34,6 +34,47 @@ def _add_multiplier_suffixes(model):
             }
 
 
+class IpoptWithConvention(object):
+    _LT = LagrangianTerms
+    _IC = InequalityConvention
+    _Conv = Conventions
+
+    convention = {
+            _Conv.TERM_FACTORS: {
+                _LT.OBJECTIVE: 1.0,
+                _LT.EQUALITY: -1.0,
+                _LT.PRIMAL_BOUND_LOWER: -1.0,
+                _LT.PRIMAL_BOUND_UPPER: -1.0,
+                },
+            _Conv.INEQUALITY_DIRECTION: {
+                _LT.PRIMAL_BOUND_LOWER: _IC.GREATER_THAN_ZERO,
+                _LT.PRIMAL_BOUND_UPPER: _IC.LESS_THAN_ZERO,
+                },
+            }
+
+    _solver = pyo.SolverFactory("ipopt")
+
+    def solve(self, model, **kwargs):
+        if self._solver is None:
+            raise RuntimeError("ipopt is not available")
+        _solver.solve(model, **kwargs)
+
+    def add_multiplier_suffixes(self, model):
+        # For testing, we only need to retrieve values from Ipopt.
+        # I.e. we don't intend to test Ipopt with multiplier initialization.
+        model.dual = pyo.Suffix(direction=pyo.Suffix.IMPORT)
+        model.ipopt_zL_out = pyo.Suffix(direction=pyo.Suffix.IMPORT)
+        model.ipopt_zU_out = pyo.Suffix(direction=pyo.Suffix.IMPORT)
+
+    def get_multiplier_map(self, model):
+        LT = self._LT
+        return {
+                LT.EQUALITY: model.dual,
+                LT.PRIMAL_BOUND_LOWER: model.ipopt_zL_out,
+                LT.PRIMAL_BOUND_UPPER: model.ipopt_zU_out,
+                }
+
+
 class MockSolver(object):
     """
     The purpose of this class is just to not repeat the following
@@ -222,6 +263,21 @@ class MockSolver3(MockSolver):
                 },
             }
 
+    def _solve_model_1(self, model):
+        # Values obtained by solving by hand
+        model.dual[model.eq_con] = -2.82842712/10.0
+        model.v1 = 1.18920712
+        model.v2 = 0.84089642
+
+    def _solve_model_2(self, model):
+        # Values obtained by solving by hand with a prior knowledge
+        # of the active set
+        model.dual[model.eq_con] = -1/10.0
+        model.v1 = 2.0
+        model.v2 = 0.5
+        model.dual_lb[model.v1] = 3.5/10.0
+        model.dual_lb[model.v2] = 0.0
+
 
 class TestModel(unittest.TestCase):
     """
@@ -305,10 +361,24 @@ class TestModel(unittest.TestCase):
         m = lag_check._model
         multiplier_map = lag_check._multiplier_suffix_map
 
+        # Assume model has a single active objective
+        obj = next(iter(m.component_data_objects(pyo.Objective, active=True)))
+        sense = ObjectiveSense.MINIMIZE if obj.sense == pyo.minimize\
+                else ObjectiveSense.MAXIMIZE
+
         # Get conversion factors between the two solvers' conventions
+        # May need to know whether we are minimizing or maximizing here.
+        if sense in solver1.convention:
+            convention1 = solver1.convention[sense]
+        else:
+            convention1 = solver1.convention
+        if sense in solver2.convention:
+            convention2 = solver2.convention[sense]
+        else:
+            convention2 = solver2.convention
         conv_factors = get_multiplier_conversion_factors(
-                solver1.convention,
-                solver2.convention,
+                convention1,
+                convention2,
                 )
 
         # Convert multipliers
@@ -322,7 +392,7 @@ class TestModel(unittest.TestCase):
 
         # Check that the gradient of the Lagrangian, now with solver2's
         # convention, is zero.
-        grad_lag = lag_check.get_gradient_lagrangian(solver2.convention)
+        grad_lag = lag_check.get_gradient_lagrangian(convention2)
         n_primals = len(grad_lag)
         self.assertEqual(n_primals, n_var)
         self.assertStructuredAlmostEqual(
@@ -353,6 +423,10 @@ class TestModel1(TestModel):
         solver = MockSolver2()
         self._test_solver(solver)
 
+    def test_solver_3(self):
+        solver = MockSolver3()
+        self._test_solver(solver)
+
     @unittest.skipUnless(pyo.SolverFactory("ipopt").available(),
             "IPOPT is not available")
     def test_ipopt(self):
@@ -372,6 +446,9 @@ class TestModel1(TestModel):
         solver1 = MockSolver1()
         solver2 = MockSolver2()
         self._test_convert_multipliers(solver1, solver2)
+
+    def test_convert_multipliers_2_to_3(self):
+        self._test_convert_multipliers(MockSolver2(), MockSolver3())
 
 
 class TestModel2(TestModel):
@@ -394,6 +471,9 @@ class TestModel2(TestModel):
     def test_solver_2(self):
         solver = MockSolver2()
         self._test_solver(solver)
+
+    def test_solver_3(self):
+        self._test_solver(MockSolver3())
 
     @unittest.skipUnless(pyo.SolverFactory("ipopt").available(),
             "IPOPT is not available")
@@ -429,6 +509,29 @@ class TestModel2(TestModel):
         solver1 = MockSolver1()
         solver2 = MockSolver2()
         self._test_convert_multipliers(solver1, solver2)
+
+    def test_convert_multipliers_2_to_3(self):
+        self._test_convert_multipliers(MockSolver2(), MockSolver3())
+
+    @unittest.skipUnless(pyo.SolverFactory("ipopt").available(),
+            "IPOPT is not available")
+    def test_convert_multipliers_ipopt_to_3(self):
+        solver = pyo.SolverFactory("ipopt")
+        LT = LagrangianTerms
+        IC = InequalityConvention
+        Conv = Conventions
+        solver.convention = {
+                Conv.TERM_FACTORS: {
+                    LT.OBJECTIVE: 1.0,
+                    LT.EQUALITY: -1.0,
+                    LT.PRIMAL_BOUND_LOWER: -1.0,
+                    LT.PRIMAL_BOUND_UPPER: -1.0,
+                    },
+                Conv.INEQUALITY_DIRECTION: {
+                    LT.PRIMAL_BOUND_LOWER: IC.GREATER_THAN_ZERO,
+                    LT.PRIMAL_BOUND_UPPER: IC.LESS_THAN_ZERO,
+                    },
+                }
 
 
 class TestModel3(TestModel):
