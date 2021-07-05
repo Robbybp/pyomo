@@ -212,8 +212,7 @@ def _levelWalker(list_of_generators):
     generators.
     """
     for gen in list_of_generators:
-        for item in gen:
-            yield item
+        yield from gen
 
 
 class _BlockConstruction(object):
@@ -418,7 +417,7 @@ class PseudoMap(object):
             yield (obj._name, obj)
 
     @deprecated('The iterkeys method is deprecated. Use dict.keys().',
-                version='TBD')
+                version='6.0')
     def iterkeys(self):
         """
         Generator returning the component names defined on the Block
@@ -426,7 +425,7 @@ class PseudoMap(object):
         return self.keys()
 
     @deprecated('The itervalues method is deprecated. Use dict.values().',
-                version='TBD')
+                version='6.0')
     def itervalues(self):
         """
         Generator returning the components defined on the Block
@@ -434,7 +433,7 @@ class PseudoMap(object):
         return self.values()
 
     @deprecated('The iteritems method is deprecated. Use dict.items().',
-                version='TBD')
+                version='6.0')
     def iteritems(self):
         """
         Generator returning (name, component) tuples for components
@@ -1401,12 +1400,10 @@ Components must now specify their rules explicitly using 'rule=' keywords.""" %
         generator recursively descends into sub-blocks.
         """
         if not descend_into:
-            for x in self.component_map(ctype, active, sort).values():
-                yield x
+            yield from self.component_map(ctype, active, sort).values()
             return
         for _block in self.block_data_objects(active, sort, descend_into, descent_order):
-            for x in _block.component_map(ctype, active, sort).values():
-                yield x
+            yield from _block.component_map(ctype, active, sort).values()
 
     def component_data_objects(self,
                                ctype=None,
@@ -1460,10 +1457,9 @@ Components must now specify their rules explicitly using 'rule=' keywords.""" %
             block_generator = (self,)
 
         for _block in block_generator:
-            for x in _block._component_data_iter(ctype=ctype,
-                                                 active=active,
-                                                 sort=sort):
-                yield x
+            yield from _block._component_data_iter(ctype=ctype,
+                                                   active=active,
+                                                   sort=sort)
 
     @deprecated("The all_blocks method is deprecated.  "
                 "Use the Block.block_data_objects() method.",
@@ -2044,7 +2040,7 @@ class ScalarBlock(_BlockData, Block):
 
 class SimpleBlock(metaclass=RenamedClass):
     __renamed__new_class__ = ScalarBlock
-    __renamed__version__ = 'TBD'
+    __renamed__version__ = '6.0'
 
 
 class IndexedBlock(Block):
