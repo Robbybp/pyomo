@@ -57,7 +57,7 @@ class IpoptWithConvention(object):
     def solve(self, model, **kwargs):
         if self._solver is None:
             raise RuntimeError("ipopt is not available")
-        _solver.solve(model, **kwargs)
+        self._solver.solve(model, **kwargs)
 
     def add_multiplier_suffixes(self, model):
         # For testing, we only need to retrieve values from Ipopt.
@@ -430,16 +430,7 @@ class TestModel1(TestModel):
     @unittest.skipUnless(pyo.SolverFactory("ipopt").available(),
             "IPOPT is not available")
     def test_ipopt(self):
-        solver = pyo.SolverFactory("ipopt")
-        LT = LagrangianTerms
-        Conv = Conventions
-        solver.convention = {
-                Conv.TERM_FACTORS: {
-                    LT.OBJECTIVE: 1.0,
-                    LT.EQUALITY: -1.0,
-                    }
-                }
-        #solver.bound_convention = {}
+        solver = IpoptWithConvention()
         self._test_solver(solver)
 
     def test_convert_multipliers_1_to_2(self):
@@ -478,31 +469,10 @@ class TestModel2(TestModel):
     @unittest.skipUnless(pyo.SolverFactory("ipopt").available(),
             "IPOPT is not available")
     def test_ipopt(self):
-        solver = pyo.SolverFactory("ipopt")
-        LT = LagrangianTerms
-        IC = InequalityConvention
-        Conv = Conventions
-        solver.convention = {
-                Conv.TERM_FACTORS: {
-                    LT.OBJECTIVE: 1.0,
-                    LT.EQUALITY: -1.0,
-                    LT.PRIMAL_BOUND_LOWER: -1.0,
-                    LT.PRIMAL_BOUND_UPPER: -1.0,
-                    },
-                Conv.INEQUALITY_DIRECTION: {
-                    LT.PRIMAL_BOUND_LOWER: IC.GREATER_THAN_ZERO,
-                    LT.PRIMAL_BOUND_UPPER: IC.LESS_THAN_ZERO,
-                    },
-                }
+        solver = IpoptWithConvention()
         m = self._make_model()
-        m.dual = pyo.Suffix(direction=pyo.Suffix.IMPORT)
-        m.ipopt_zL_out = pyo.Suffix(direction=pyo.Suffix.IMPORT)
-        m.ipopt_zU_out = pyo.Suffix(direction=pyo.Suffix.IMPORT)
-        multiplier_map = {
-                LT.EQUALITY: m.dual,
-                LT.PRIMAL_BOUND_LOWER: m.ipopt_zL_out,
-                LT.PRIMAL_BOUND_UPPER: m.ipopt_zU_out,
-                }
+        solver.add_multiplier_suffixes(m)
+        multiplier_map = solver.get_multiplier_map(m)
         self._test_solver(solver, model_info=(m, multiplier_map))
 
     def test_convert_multipliers_1_to_2(self):
@@ -516,22 +486,13 @@ class TestModel2(TestModel):
     @unittest.skipUnless(pyo.SolverFactory("ipopt").available(),
             "IPOPT is not available")
     def test_convert_multipliers_ipopt_to_3(self):
-        solver = pyo.SolverFactory("ipopt")
-        LT = LagrangianTerms
-        IC = InequalityConvention
-        Conv = Conventions
-        solver.convention = {
-                Conv.TERM_FACTORS: {
-                    LT.OBJECTIVE: 1.0,
-                    LT.EQUALITY: -1.0,
-                    LT.PRIMAL_BOUND_LOWER: -1.0,
-                    LT.PRIMAL_BOUND_UPPER: -1.0,
-                    },
-                Conv.INEQUALITY_DIRECTION: {
-                    LT.PRIMAL_BOUND_LOWER: IC.GREATER_THAN_ZERO,
-                    LT.PRIMAL_BOUND_UPPER: IC.LESS_THAN_ZERO,
-                    },
-                }
+        solver = IpoptWithConvention()
+        solver3 = MockSolver3()
+        m = self._make_model()
+        solver.add_multiplier_suffixes(m)
+        multiplier_map = solver.get_multiplier_map(m)
+        model_info = (m, multiplier_map)
+        self._test_convert_multipliers(solver, solver3, model_info=model_info)
 
 
 class TestModel3(TestModel):
@@ -570,31 +531,10 @@ class TestModel3(TestModel):
     @unittest.skipUnless(pyo.SolverFactory("ipopt").available(),
             "IPOPT is not available")
     def test_ipopt(self):
-        solver = pyo.SolverFactory("ipopt")
-        LT = LagrangianTerms
-        IC = InequalityConvention
-        Conv = Conventions
-        solver.convention = {
-                Conv.TERM_FACTORS: {
-                    LT.OBJECTIVE: 1.0,
-                    LT.EQUALITY: -1.0,
-                    LT.PRIMAL_BOUND_LOWER: -1.0,
-                    LT.PRIMAL_BOUND_UPPER: -1.0,
-                    },
-                Conv.INEQUALITY_DIRECTION: {
-                    LT.PRIMAL_BOUND_LOWER: IC.GREATER_THAN_ZERO,
-                    LT.PRIMAL_BOUND_UPPER: IC.LESS_THAN_ZERO,
-                    },
-                }
+        solver = IpoptWithConvention()
         m = self._make_model()
-        m.dual = pyo.Suffix(direction=pyo.Suffix.IMPORT)
-        m.ipopt_zL_out = pyo.Suffix(direction=pyo.Suffix.IMPORT)
-        m.ipopt_zU_out = pyo.Suffix(direction=pyo.Suffix.IMPORT)
-        multiplier_map = {
-                LT.EQUALITY: m.dual,
-                LT.PRIMAL_BOUND_LOWER: m.ipopt_zL_out,
-                LT.PRIMAL_BOUND_UPPER: m.ipopt_zU_out,
-                }
+        solver.add_multiplier_suffixes(m)
+        multiplier_map = solver.get_multiplier_map(m)
         self._test_solver(solver, model_info=(m, multiplier_map))
 
 
