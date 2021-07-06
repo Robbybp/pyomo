@@ -227,6 +227,15 @@ class LagrangianChecker(object):
         whether we are maximizing or minimizing. It is also possible for
         this "convention" to not change, but for the signs of the
         multipliers to change instead.
+
+        If the convention contains terms corresponding to inequalities,
+        it must also contain the required information necessary to
+        construct the corresponding terms in the Lagrangian. This is
+        (a) whether slack variables are used (for inequality constraints)
+        and (b) the inequality direction (greater or less than zero).
+        This method checks whether such information is provided for
+        terms corresponding to inequalities.
+
         """
         suffix_map = self._multiplier_suffix_map
 
