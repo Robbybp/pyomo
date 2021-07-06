@@ -199,10 +199,35 @@ def get_multiplier_conversion_factors(source_convention, target_convention):
 class LagrangianChecker(object):
 
     def __init__(self, model, multiplier_suffix_map):
+        """
+        To construct the gradient of the Lagrangian, we need model
+        variables/bounds/constraints, and the corresponding multipliers.
+
+        Different solvers may use different suffixes to store the
+        multipliers, so we require a map from LagrangianTerms enum items
+        to the suffix used for that term's multipliers. E.g. for Ipopt:
+
+        >>> multiplier_suffix_map = {
+        >>>     LagrangianTerms.EQUALITY: model.dual,
+        >>>     LagrangianTerms.PRIMAL_BOUND_LOWER: model.ipopt_zL_out,
+        >>>     LagrangianTerms.PRIMAL_BOUND_UPPER: model.ipopt_zU_out,
+        >>>     }
+
+        """
         self._model = model
         self._multiplier_suffix_map = multiplier_suffix_map
 
     def _check_compatible_convention(self, convention):
+        """
+        A "convention" contains all the necessary information to construct
+        the Lagrangian given variables, constraints, bounds, and
+        multipliers.
+
+        It is possible/common for the "convention" to change depending on
+        whether we are maximizing or minimizing. It is also possible for
+        this "convention" to not change, but for the signs of the
+        multipliers to change instead.
+        """
         suffix_map = self._multiplier_suffix_map
 
         OS = ObjectiveSense
