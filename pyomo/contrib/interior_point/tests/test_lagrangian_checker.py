@@ -14,7 +14,6 @@ import pyomo.environ as pyo
 from pyomo.contrib.interior_point.lagrangian_checker import (
         Conventions,
         LagrangianTerms,
-        InequalityConvention,
         LagrangianChecker,
         ObjectiveSense,
         get_multiplier_conversion_factors,
@@ -36,7 +35,6 @@ def _add_multiplier_suffixes(model):
 
 class IpoptWithConvention(object):
     _LT = LagrangianTerms
-    _IC = InequalityConvention
     _Conv = Conventions
 
     convention = {
@@ -45,10 +43,7 @@ class IpoptWithConvention(object):
                 _LT.EQUALITY: -1.0,
                 _LT.PRIMAL_BOUND_LOWER: -1.0,
                 _LT.PRIMAL_BOUND_UPPER: -1.0,
-                },
-            _Conv.INEQUALITY_DIRECTION: {
-                _LT.PRIMAL_BOUND_LOWER: _IC.GREATER_THAN_ZERO,
-                _LT.PRIMAL_BOUND_UPPER: _IC.LESS_THAN_ZERO,
+                _LT.INEQUALITY_SLACK: -1.0,
                 },
             }
 
@@ -70,6 +65,7 @@ class IpoptWithConvention(object):
         LT = self._LT
         return {
                 LT.EQUALITY: model.dual,
+                LT.INEQUALITY_SLACK: model.dual,
                 LT.PRIMAL_BOUND_LOWER: model.ipopt_zL_out,
                 LT.PRIMAL_BOUND_UPPER: model.ipopt_zU_out,
                 }
@@ -110,18 +106,13 @@ class MockSolver1(MockSolver):
     """
 
     _LT = LagrangianTerms
-    _IC = InequalityConvention
     _C = Conventions
     convention = {
             _C.TERM_FACTORS: {
                 _LT.OBJECTIVE: 1.0,
                 _LT.EQUALITY: 1.0,
                 _LT.PRIMAL_BOUND_UPPER: 1.0,
-                _LT.PRIMAL_BOUND_LOWER: 1.0,
-                },
-            _C.INEQUALITY_DIRECTION: {
-                _LT.PRIMAL_BOUND_UPPER: _IC.LESS_THAN_ZERO,
-                _LT.PRIMAL_BOUND_LOWER: _IC.LESS_THAN_ZERO,
+                _LT.PRIMAL_BOUND_LOWER: -1.0,
                 },
             }
 
@@ -174,7 +165,6 @@ class MockSolver2(MockSolver):
     """
 
     _LT = LagrangianTerms
-    _IC = InequalityConvention
     _C = Conventions
     convention = {
             _C.TERM_FACTORS: {
@@ -182,10 +172,6 @@ class MockSolver2(MockSolver):
                 _LT.EQUALITY: -1.0,
                 _LT.PRIMAL_BOUND_UPPER: -1.0,
                 _LT.PRIMAL_BOUND_LOWER: -1.0,
-                },
-            _C.INEQUALITY_DIRECTION: {
-                _LT.PRIMAL_BOUND_LOWER: _IC.GREATER_THAN_ZERO,
-                _LT.PRIMAL_BOUND_UPPER: _IC.LESS_THAN_ZERO,
                 },
             }
 
@@ -226,14 +212,13 @@ class MockSolver3(MockSolver):
             factors of +10.
        (ii) Inequalities are not reformulated into slacks
       (iii) Bound and inequality multipliers are always positive.
-            
+
     (i) and (iii) imply that bounds and inequality constraints are
     reformulated into ">= 0" form for maximization problems and
     "<= 0" form for minimization problems.
     """
 
     _LT = LagrangianTerms
-    _IC = InequalityConvention
     _C = Conventions
     _OS = ObjectiveSense
     convention = {
@@ -241,12 +226,8 @@ class MockSolver3(MockSolver):
                 _C.TERM_FACTORS: {
                     _LT.OBJECTIVE: 1.0,
                     _LT.EQUALITY: 10.0,
-                    _LT.PRIMAL_BOUND_UPPER: 10.0,
+                    _LT.PRIMAL_BOUND_UPPER: -10.0,
                     _LT.PRIMAL_BOUND_LOWER: 10.0,
-                    },
-                _C.INEQUALITY_DIRECTION: {
-                    _LT.PRIMAL_BOUND_LOWER: _IC.GREATER_THAN_ZERO,
-                    _LT.PRIMAL_BOUND_UPPER: _IC.GREATER_THAN_ZERO,
                     },
                 },
             _OS.MINIMIZE: {
@@ -254,11 +235,7 @@ class MockSolver3(MockSolver):
                     _LT.OBJECTIVE: 1.0,
                     _LT.EQUALITY: 10.0,
                     _LT.PRIMAL_BOUND_UPPER: 10.0,
-                    _LT.PRIMAL_BOUND_LOWER: 10.0,
-                    },
-                _C.INEQUALITY_DIRECTION: {
-                    _LT.PRIMAL_BOUND_LOWER: _IC.LESS_THAN_ZERO,
-                    _LT.PRIMAL_BOUND_UPPER: _IC.LESS_THAN_ZERO,
+                    _LT.PRIMAL_BOUND_LOWER: -10.0,
                     },
                 },
             }
@@ -443,7 +420,10 @@ class TestModel1(TestModel):
             "IPOPT is not available")
     def test_ipopt(self):
         solver = IpoptWithConvention()
-        self._test_solver(solver)
+        m = self._make_model()
+        solver.add_multiplier_suffixes(m)
+        multiplier_map = solver.get_multiplier_map(m)
+        self._test_solver(solver, model_info=(m, multiplier_map))
 
     def test_convert_multipliers_1_to_2(self):
         solver1 = MockSolver1()
