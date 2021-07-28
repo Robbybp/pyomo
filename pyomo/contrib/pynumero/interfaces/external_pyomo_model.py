@@ -115,9 +115,9 @@ def get_hessian_of_constraint(constraint, wrt1=None, wrt2=None, nlp=None):
 
     # NOTE: The returned matrix preserves explicit zeros. I.e. it contains
     # coordinates for every entry that could possibly be nonzero.
-    TIMER.start("extract-submatrix")
+    TIMER.start("submatrix")
     submatrix = nlp.extract_submatrix_hessian_lag(wrt1, wrt2)
-    TIMER.stop("extract-submatrix")
+    TIMER.stop("submatrix")
 
     nlp.set_obj_factor(saved_obj_factor)
     nlp.set_duals(saved_duals)
@@ -231,11 +231,11 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         x = self.input_vars
         y = self.external_vars
         f = self.residual_cons
-        g = self.external_cons
+        #g = self.external_cons
         jfx = nlp.extract_submatrix_jacobian(x, f)
         jfy = nlp.extract_submatrix_jacobian(y, f)
-        jgx = nlp.extract_submatrix_jacobian(x, g)
-        jgy = nlp.extract_submatrix_jacobian(y, g)
+        #jgx = nlp.extract_submatrix_jacobian(x, g)
+        #jgy = nlp.extract_submatrix_jacobian(y, g)
 
         nf = len(f)
         nx = len(x)
@@ -245,10 +245,11 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         # My intuition is that it does only if jgy is "decomposable"
         # in the strongly connected component sense, which is probably
         # not usually the case.
-        dydx = -1 * sps.linalg.splu(jgy.tocsc()).solve(jgx.toarray())
+        #dydx = -1 * sps.linalg.splu(jgy.tocsc()).solve(jgx.toarray())
         # NOTE: PyNumero block matrices require this to be a sparse matrix
         # that contains coordinates for every entry that could possibly
         # be nonzero. Here, this is all of the entries.
+        dydx = self.evaluate_jacobian_external_variables()
         dfdx = jfx + jfy.dot(dydx)
 
         coo = _dense_to_full_sparse(dfdx)
@@ -256,7 +257,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         return coo
 
     def evaluate_jacobian_external_variables(self):
-        TIMER.start("external")
+        TIMER.start("ext-jac")
         nlp = self._nlp
         x = self.input_vars
         y = self.external_vars
@@ -264,8 +265,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         jgx = nlp.extract_submatrix_jacobian(x, g)
         jgy = nlp.extract_submatrix_jacobian(y, g)
         jgy_csc = jgy.tocsc()
-        dydx = -1 * sps.linalg.splu(jgy_csc).solve(jgx.toarray())
-        TIMER.stop("external")
+        dydx = -1.0 * sps.linalg.splu(jgy_csc).solve(jgx.toarray())
+        TIMER.stop("ext-jac")
         return dydx
 
     def evaluate_hessian_external_variables(self):
@@ -274,47 +275,67 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         x = self.input_vars
         y = self.external_vars
         g = self.external_cons
+
+        TIMER.start("ext-jac")
+        # Calculate dydx inline here so I have access to jgy_fact
         jgx = nlp.extract_submatrix_jacobian(x, g)
         jgy = nlp.extract_submatrix_jacobian(y, g)
         jgy_csc = jgy.tocsc()
         jgy_fact = sps.linalg.splu(jgy_csc)
         dydx = -1 * jgy_fact.solve(jgx.toarray())
+        TIMER.stop("ext-jac")
 
         ny = len(y)
         nx = len(x)
 
+        TIMER.start("hess-list")
         hgxx = [get_hessian_of_constraint(con, x, nlp=nlp) for con in g]
         hgxy = [get_hessian_of_constraint(con, x, y, nlp=nlp) for con in g]
         hgyy = [get_hessian_of_constraint(con, y, nlp=nlp) for con in g]
+        TIMER.stop("hess-list")
 
         # Each term should be a length-ny list of nx-by-nx matrices
         # TODO: Make these 3-d numpy arrays.
         term1 = hgxx # Sparse matrix
+
+        TIMER.start("sym-sum-prod")
         term2 = []
         for hessian in hgxy:
             # Sparse matrix times dense matrix. The result is sparse
             # if the sparse matrix is low rank.
             _prod = hessian.dot(dydx)
             term2.append(_prod + _prod.transpose())
+        TIMER.stop("sym-sum-prod")
+
         # Dense matrix times sparse matrix times dense matrix.
         # I believe the product is always dense.
+        TIMER.start("quad")
         term3 = [dydx.transpose().dot(hessian.toarray()).dot(dydx)
                 for hessian in hgyy]
+        TIMER.stop("quad")
 
         # List of nx-by-nx matrices
+        TIMER.start("sum-terms")
         sum_ = [t1 + t2 + t3 for t1, t2, t3 in zip(term1, term2, term3)]
+        TIMER.stop("sum-terms")
 
         # TODO: Store this as 3d array, use np.reshape to perform
         # backsolve in a single call.
+        TIMER.start("reshape-1")
         vectors = [[np.array([matrix[i, j] for matrix in sum_])
                 for j in range(nx)] for i in range(nx)]
+        TIMER.stop("reshape-1")
+        TIMER.start("backsolve")
         solved_vectors = [[jgy_fact.solve(vector) for vector in vlist]
             for vlist in vectors]
+        TIMER.stop("backsolve")
+        TIMER.start("reshape-2")
         d2ydx2 = [
             -np.array([[vec[i] for vec in vlist]
             for vlist in solved_vectors])
             for i in range(ny)
             ]
+        TIMER.stop("reshape-2")
 
         TIMER.stop("external")
         return d2ydx2
@@ -339,33 +360,45 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         nf = len(f)
         nx = len(x)
 
+        TIMER.start("hess-list")
         hfxx = [get_hessian_of_constraint(con, x, nlp=nlp) for con in f]
         hfxy = [get_hessian_of_constraint(con, x, y, nlp=nlp) for con in f]
         hfyy = [get_hessian_of_constraint(con, y, nlp=nlp) for con in f]
+        TIMER.stop("hess-list")
 
         d2ydx2 = self.evaluate_hessian_external_variables()
 
         # Each term should be a length-ny list of nx-by-nx matrices
         # TODO: Make these 3-d numpy arrays.
         term1 = hfxx
+        TIMER.start("sym-sum-prod")
         term2 = []
         for hessian in hfxy:
             _prod = hessian.dot(dydx)
             term2.append(_prod + _prod.transpose())
+        TIMER.stop("sym-sum-prod")
+        TIMER.start("quad")
         term3 = [dydx.transpose().dot(hessian.toarray()).dot(dydx)
                 for hessian in hfyy]
+        TIMER.stop("quad")
 
         # Extract each of the nx^2 vectors from d2ydx2
+        TIMER.start("reshape-1")
         vectors = [[np.array([matrix[i, j] for matrix in d2ydx2])
                 for j in range(nx)] for i in range(nx)]
+        TIMER.stop("reshape-1")
         # Multiply by jfy
+        TIMER.start("prod")
         product_vectors = [[jfy.dot(vector) for vector in vlist]
             for vlist in vectors]
+        TIMER.stop("prod")
+        TIMER.start("reshape-2")
         term4 = [
             np.array([[vec[i] for vec in vlist]
             for vlist in product_vectors])
             for i in range(nf)
             ]
+        TIMER.stop("reshape-2")
 
         # List of nx-by-nx matrices
         d2fdx2 = [t1 + t2 + t3 + t4
