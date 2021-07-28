@@ -15,6 +15,7 @@ from pyomo.core.base.constraint import Constraint
 from pyomo.core.base.objective import Objective
 from pyomo.core.expr.visitor import identify_variables
 from pyomo.common.collections import ComponentSet
+from pyomo.common.timing import HierarchicalTimer
 from pyomo.util.subsystems import (
         create_subsystem_block,
         TemporarySubsystemManager,
@@ -26,6 +27,9 @@ from pyomo.contrib.pynumero.interfaces.external_grey_box import (
         )
 import numpy as np
 import scipy.sparse as sps
+
+
+TIMER = HierarchicalTimer()
 
 
 def _dense_to_full_sparse(matrix):
@@ -45,6 +49,7 @@ def _dense_to_full_sparse(matrix):
     # TODO: Allow methods to hard-code Jacobian/Hessian sparsity structure
     # in the case it is known a priori.
     # TODO: Decompose matrices to infer maximum fill-in sparsity structure.
+    TIMER.start("full-sparse")
     nrow, ncol = matrix.shape
     row = []
     col = []
@@ -56,10 +61,12 @@ def _dense_to_full_sparse(matrix):
     row = np.array(row)
     col = np.array(col)
     data = np.array(data)
+    TIMER.stop("full-sparse")
     return sps.coo_matrix((data, (row, col)), shape=(nrow, ncol))
 
 
 def get_hessian_of_constraint(constraint, wrt1=None, wrt2=None, nlp=None):
+    TIMER.start("hess-con")
     constraints = [constraint]
     if wrt1 is None and wrt2 is None:
         variables = list(identify_variables(constraint.expr, include_fixed=False))
@@ -76,6 +83,7 @@ def get_hessian_of_constraint(constraint, wrt1=None, wrt2=None, nlp=None):
         variables = wrt1
 
     if nlp is None:
+        TIMER.start("create-nlp")
         block = create_subsystem_block(constraints, variables=variables)
         # Could fix input_vars so I don't evaluate the Hessian with respect
         # to variables I don't care about...
@@ -92,6 +100,7 @@ def get_hessian_of_constraint(constraint, wrt1=None, wrt2=None, nlp=None):
         block._dummy_con = Constraint(expr=sum(variables) == block._dummy_var)
         block._obj = Objective(expr=0.0)
         nlp = PyomoNLP(block)
+        TIMER.stop("create-nlp")
 
     saved_duals = nlp.get_duals()
     saved_obj_factor = nlp.get_obj_factor()
@@ -106,10 +115,13 @@ def get_hessian_of_constraint(constraint, wrt1=None, wrt2=None, nlp=None):
 
     # NOTE: The returned matrix preserves explicit zeros. I.e. it contains
     # coordinates for every entry that could possibly be nonzero.
+    TIMER.start("extract-submatrix")
     submatrix = nlp.extract_submatrix_hessian_lag(wrt1, wrt2)
+    TIMER.stop("extract-submatrix")
 
     nlp.set_obj_factor(saved_obj_factor)
     nlp.set_duals(saved_duals)
+    TIMER.stop("hess-con")
     return submatrix
 
 
@@ -139,10 +151,12 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             external_cons,
             solver=None,
             ):
+        TIMER.start("init")
         if solver is None:
             solver = SolverFactory("ipopt")
         self._solver = solver
 
+        TIMER.start("create-nlp")
         # We only need this block to construct the NLP, which wouldn't
         # be necessary if we could compute Hessians of Pyomo constraints.
         self._block = create_subsystem_block(
@@ -151,6 +165,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                 )
         self._block._obj = Objective(expr=0.0)
         self._nlp = PyomoNLP(self._block)
+        TIMER.stop("create-nlp")
 
         assert len(external_vars) == len(external_cons)
 
@@ -160,6 +175,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         self.external_cons = external_cons
 
         self.residual_con_multipliers = [None for _ in residual_cons]
+        TIMER.stop("init")
 
     def n_inputs(self):
         return len(self.input_vars)
@@ -174,6 +190,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         return ["residual_%i" % i for i in range(self.n_equality_constraints())]
 
     def set_input_values(self, input_values):
+        TIMER.start("function-eval")
         solver = self._solver
         external_cons = self.external_cons
         external_vars = self.external_vars
@@ -188,13 +205,18 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         #    # TODO: Is this check necessary?
         #    assert var in possible_input_vars
 
+        TIMER.start("solve")
         with TemporarySubsystemManager(to_fix=list(_temp.input_vars.values())):
             solver.solve(_temp)
+        TIMER.stop("solve")
 
         # Should we create the NLP from the original block or the temp block?
         # Need to create it from the original block because temp block won't
         # have residual constraints, whose derivatives are necessary.
+        TIMER.start("create-nlp")
         self._nlp = PyomoNLP(self._block)
+        TIMER.stop("create-nlp")
+        TIMER.stop("function-eval")
 
     def set_equality_constraint_multipliers(self, eq_con_multipliers):
         for i, val in enumerate(eq_con_multipliers):
@@ -204,6 +226,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         return self._nlp.extract_subvector_constraints(self.residual_cons)
 
     def evaluate_jacobian_equality_constraints(self):
+        TIMER.start("jacobian-eval")
         nlp = self._nlp
         x = self.input_vars
         y = self.external_vars
@@ -228,9 +251,12 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         # be nonzero. Here, this is all of the entries.
         dfdx = jfx + jfy.dot(dydx)
 
-        return _dense_to_full_sparse(dfdx)
+        coo = _dense_to_full_sparse(dfdx)
+        TIMER.stop("jacobian-eval")
+        return coo
 
     def evaluate_jacobian_external_variables(self):
+        TIMER.start("external")
         nlp = self._nlp
         x = self.input_vars
         y = self.external_vars
@@ -239,9 +265,11 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         jgy = nlp.extract_submatrix_jacobian(y, g)
         jgy_csc = jgy.tocsc()
         dydx = -1 * sps.linalg.splu(jgy_csc).solve(jgx.toarray())
+        TIMER.stop("external")
         return dydx
 
     def evaluate_hessian_external_variables(self):
+        TIMER.start("external")
         nlp = self._nlp
         x = self.input_vars
         y = self.external_vars
@@ -288,6 +316,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             for i in range(ny)
             ]
 
+        TIMER.stop("external")
         return d2ydx2
 
     def evaluate_hessians_of_residuals(self):
@@ -296,6 +325,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         constraint individually, rather than the sum of Hessians
         times multipliers.
         """
+        TIMER.start("equalities")
         nlp = self._nlp
         x = self.input_vars
         y = self.external_vars
@@ -340,6 +370,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         # List of nx-by-nx matrices
         d2fdx2 = [t1 + t2 + t3 + t4
                 for t1, t2, t3, t4 in zip(term1, term2, term3, term4)]
+        TIMER.stop("equalities")
         return d2fdx2
 
     def evaluate_hessian_equality_constraints(self):
@@ -348,6 +379,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         multipliers, i.e. the term in the Hessian of the Lagrangian
         due to these equality constraints.
         """
+        TIMER.start("hessian-eval")
         d2fdx2 = self.evaluate_hessians_of_residuals()
         multipliers = self.residual_con_multipliers
 
@@ -356,4 +388,6 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         # is difficult to determine rigorously which coordinates
         # _could possibly_ be nonzero.
         sparse = _dense_to_full_sparse(sum_)
-        return sps.tril(sparse)
+        tril = sps.tril(sparse)
+        TIMER.stop("hessian-eval")
+        return tril
