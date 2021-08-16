@@ -25,6 +25,7 @@ class VectorValuedExternalFunction(object):
 
     def evaluate_jacobian_outputs(self):
         # Not all functions have first derivatives
+        # TODO: Should I have a separate `DifferentiableFunction` class?
         pass
 
     def evaluate_hessian_outputs(self):
@@ -64,7 +65,7 @@ class FunctionComposition(VectorValuedExternalFunction):
 
     def set_input_values(self, input_values):
         self._function2.set_input_values(input_values)
-        ouputs2 = self._function2.evaluate_outputs()
+        outputs2 = self._function2.evaluate_outputs()
         # TODO: permute input values if necessary
         self._function1.set_input_values(outputs2)
 
@@ -107,6 +108,8 @@ class FunctionComposition(VectorValuedExternalFunction):
         jf1 = self._function1.evaluate_jacobian_outputs()
         jf2 = self._function2.evaluate_jacobian_outputs()
 
+        # TODO: I can improve performance by only using the
+        # lower triangle of Hessian matrices.
         hf1 = self._function1.evaluate_hessian_outputs()
         hf2 = self._function2.evaluate_hessian_outputs()
 
