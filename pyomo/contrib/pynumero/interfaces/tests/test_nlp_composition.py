@@ -102,7 +102,9 @@ class SimpleModel(ExternalGreyBoxModel):
         # - Fast multiplication and transpose for a slice across rank 1
         # - Identification of a slice across ranks 2 and 3. This is what
         #   an array of coo matrices doesn't handle well...
-        return sps.coo_matrix()
+        # Current choice is a list of coo matrices.
+        return [sps.coo_matrix(self.hessian_outputs[i, :, :])
+            for i in range(self.n_outputs)]
 
 def make_model1_xu():
     """
@@ -155,6 +157,19 @@ def make_model2_yzu():
     m.eq_con2 = pyo.Constraint(expr=m.y*m.z - 2.0 == 0)
     m.obj = pyo.Objective(expr=m.y**2 + m.z**2 + 2*m.u**2)
     return m
+
+
+class TestCompositionNewVariables(unittest.TestCase):
+
+    def test_compose(self):
+        m = make_model1_xu()
+        nlp = PyomoNLP(m)
+
+        fcn = SimpleModel()
+
+        output_vars = [m.x]
+        output_coords = nlp.get_primal_indices(output_vars)
+        nlp_comp = NLPComposition(nlp, output_coords, fcn, input_coords=None)
 
 
 if __name__ == '__main__':
