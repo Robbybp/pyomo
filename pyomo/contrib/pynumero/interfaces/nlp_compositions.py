@@ -1,8 +1,35 @@
-from pyomo.contrib.pynumero.interfaces.external_grey_box import (
-    VectorValuedExternalFunction,
-)
 import numpy as np
 import scipy.sparse as sps
+
+
+class VectorValuedExternalFunction(object):
+    """ 
+    This is a base class for abstract functions. I differentiate this
+    from an ExternalGreyBoxModel as I believe the "function" and the
+    "model" should be separated, and because I need a different
+    Hessian format.
+
+    """
+
+    def n_inputs(self):
+        raise NotImplementedError()
+
+    def set_input_values(self, input_values):
+        raise NotImplementedError()
+
+    def n_outputs(self):
+        raise NotImplementedError()
+
+    def evaluate_outputs(self):
+        raise NotImplementedError()
+
+    def evaluate_jacobian_outputs(self):
+        # Not all functions have first derivatives
+        pass
+
+    def evaluate_hessian_outputs(self):
+        # Not all functions have second derivatives
+        pass
 
 
 class FunctionComposition(VectorValuedExternalFunction):
