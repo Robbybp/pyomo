@@ -91,7 +91,7 @@ class SimpleFunction1(VectorValuedExternalFunction):
 
     def evaluate_hessian_outputs(self):
         return [sps.coo_matrix(self.hessian_outputs[i, :, :])
-            for i in range(self.n_outputs)]
+            for i in range(self.n_outputs())]
 
 
 class SimpleFunction2(VectorValuedExternalFunction):
@@ -141,7 +141,7 @@ class SimpleFunction2(VectorValuedExternalFunction):
         #   an array of coo matrices doesn't handle well...
         # Current choice is a list of coo matrices.
         return [sps.coo_matrix(self.hessian_outputs[i, :, :])
-            for i in range(self.n_outputs)]
+            for i in range(self.n_outputs())]
 
 
 """
@@ -224,9 +224,36 @@ class TestSimpleFunctionComposition(unittest.TestCase):
         g = SimpleFunction2()
         fog = FunctionComposition(f, g)
 
-        inputs = np.array([1.0, 2.0])
+        y, z = 1.0, 2.0
+        inputs = np.array([y, z])
         fog.set_input_values(inputs)
         jacobian = fog.evaluate_jacobian_outputs()
+        
+        jac_pred = [
+                [5*y/np.sqrt(y**2 + z**2), 5*z/np.sqrt(y**2 + z**2)],
+                [2*y, 2*z],
+                ]
+        np.testing.assert_allclose(jacobian.toarray(), jac_pred)
+
+    def test_hessian(self):
+        f = SimpleFunction1()
+        g = SimpleFunction2()
+        fog = FunctionComposition(f, g)
+
+        y, z = 1.0, 2.0
+        inputs = np.array([y, z])
+        fog.set_input_values(inputs)
+        hessian = fog.evaluate_hessian_outputs()
+
+        denom = np.sqrt(y**2+z**2)**3
+        hess_pred = [
+                [[5*z**2/denom, -5*y*z/denom],
+                [-5*y*z/denom, 5*y**2/denom]],
+                [[2.0, 0.0],
+                [0.0, 2.0]],
+                ]
+        for pred, act in zip(hess_pred, hessian):
+            np.testing.assert_allclose(pred, act.toarray())
 
 
 class _TestCompositionNewVariables(unittest.TestCase):
