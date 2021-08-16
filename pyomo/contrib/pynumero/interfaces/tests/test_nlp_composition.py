@@ -31,11 +31,8 @@ if not AmplInterface.available():
 from pyomo.contrib.pynumero.algorithms.solvers.cyipopt_solver import (
     cyipopt_available,
 )
-from pyomo.contrib.pynumero.interfaces.external_pyomo_model import (
-    ExternalPyomoModel,
-    get_hessian_of_constraint,
-)
 from pyomo.contrib.pynumero.interfaces.external_grey_box import (
+    ExternalGreyBoxModel,
     ExternalGreyBoxBlock,
     ScalarExternalGreyBoxBlock,
     IndexedExternalGreyBoxBlock,
@@ -46,18 +43,58 @@ from pyomo.contrib.pynumero.interfaces.pyomo_grey_box_nlp import (
 from pyomo.contrib.pynumero.interfaces.tests.external_grey_box_models import (
     PressureDropTwoOutputsWithHessian,
 )
+from pyomo.contrib.pynumero.interfaces.functions import (
+        VectorValuedExternalFunction,
+        FunctionComposition,
+        )
 
 if not pyo.SolverFactory("ipopt").available():
     raise unittest.SkipTest(
         "Need IPOPT to run ExternalPyomoModel tests"
         )
 
-"""
-The following four functions define models used to test
-the embedding of a scalar-valued function in an NLP.
-"""
 
-class SimpleModel(ExternalGreyBoxModel):
+class SimpleFunction1(VectorValuedExternalFunction):
+    """
+    Maps x to (5*x - 1, x**2 + 50)
+    """
+
+    def __init__(self):
+        self.inputs = np.zeros(1)
+        self.outputs = np.zeros(2)
+        self.jacobian_outputs = np.zeros((2, 1))
+        self.hessian_outputs = np.zeros((2, 1, 1))
+
+    def n_inputs(self):
+        return len(self.inputs)
+
+    def n_outputs(self):
+        return len(self.outputs)
+
+    def set_input_values(self, input_values):
+        self.inputs = input_values
+        x = self.inputs[0]
+        self.outputs[0] = 5.0*x - 1.0
+        self.outputs[1] = x**2 + 50.0
+        self.jacobian_outputs[0, 0] = 5.0
+        self.jacobian_outputs[1, 0] = 2.0*x
+        h000 = 0.0
+        h100 = 2.0
+        self.hessian_outputs[0, 0, 0] = h000
+        self.hessian_outputs[1, 0, 0] = h100
+
+    def evaluate_outputs(self):
+        return self.outputs
+
+    def evaluate_jacobian_outputs(self):
+        return sps.coo_matrix(self.jacobian_outputs)
+
+    def evaluate_hessian_outputs(self):
+        return [sps.coo_matrix(self.hessian_outputs[i, :, :])
+            for i in range(self.n_outputs)]
+
+
+class SimpleFunction2(VectorValuedExternalFunction):
     """
     My vision for a vector-valued external function is an object
     with no notion of equality constraints, and no notion of names.
@@ -78,15 +115,15 @@ class SimpleModel(ExternalGreyBoxModel):
         self.outputs[0] = np.sqrt(self.inputs[0]**2 + self.inputs[1]**2)
         self.jacobian_outputs[0, 0] = self.inputs[0]/self.outputs[0]
         self.jacobian_outputs[0, 1] = self.inputs[1]/self.outputs[0]
-        h00 = (self.outputs[0]**2 - self.inputs[0]**2)/self.outputs[0]**3
-        h01 = - self.inputs[0]*self.inputs[1]/self.outputs[0]**3
-        h11 = (self.outputs[0]**2 - self.inputs[1]**2)/self.outputs[0]**3
-        self.hessian_outputs[0, 0, 0] = h00
-        self.hessian_outputs[0, 1, 0] = h01
-        self.hessian_outputs[0, 0, 1] = h10
-        self.hessian_outputs[0, 1, 1] = h11
+        h000 = (self.outputs[0]**2 - self.inputs[0]**2)/self.outputs[0]**3
+        h001 = - self.inputs[0]*self.inputs[1]/self.outputs[0]**3
+        h011 = (self.outputs[0]**2 - self.inputs[1]**2)/self.outputs[0]**3
+        self.hessian_outputs[0, 0, 0] = h000
+        self.hessian_outputs[0, 1, 0] = h001
+        self.hessian_outputs[0, 0, 1] = h001
+        self.hessian_outputs[0, 1, 1] = h011
 
-    def n_output(self):
+    def n_outputs(self):
         return len(self.outputs)
 
     def evaluate_outputs(self):
@@ -105,6 +142,13 @@ class SimpleModel(ExternalGreyBoxModel):
         # Current choice is a list of coo matrices.
         return [sps.coo_matrix(self.hessian_outputs[i, :, :])
             for i in range(self.n_outputs)]
+
+
+"""
+The following four functions define models used to test
+the embedding of a scalar-valued function in an NLP.
+"""
+
 
 def make_model1_xu():
     """
@@ -159,9 +203,35 @@ def make_model2_yzu():
     return m
 
 
-class TestCompositionNewVariables(unittest.TestCase):
+class TestSimpleFunctionComposition(unittest.TestCase):
 
-    def test_compose(self):
+    def test_outputs(self):
+        f = SimpleFunction1()
+        g = SimpleFunction2()
+        fog = FunctionComposition(f, g)
+
+        inputs = np.array([1.0, 2.0])
+        fog.set_input_values(inputs)
+        outputs = fog.evaluate_outputs()
+
+        np.testing.assert_allclose(
+                outputs,
+                [np.sqrt(5.0)*5.0 - 1.0, 55.0],
+                )
+
+    def test_jacobian(self):
+        f = SimpleFunction1()
+        g = SimpleFunction2()
+        fog = FunctionComposition(f, g)
+
+        inputs = np.array([1.0, 2.0])
+        fog.set_input_values(inputs)
+        jacobian = fog.evaluate_jacobian_outputs()
+
+
+class _TestCompositionNewVariables(unittest.TestCase):
+
+    def _test_compose(self):
         m = make_model1_xu()
         nlp = PyomoNLP(m)
 
