@@ -45,7 +45,71 @@ class FunctionComposition(VectorValuedExternalFunction):
         return self._function1.evaluate_outputs()
 
     def evaluate_jacobian_outputs(self):
-        pass
+        """
+        Application of the chain rule yields:
+
+        Jfog(x) = Jf(g(x)) * Jg(x)
+
+        Multiplication is standard matrix multiplication.
+
+        """
+        jf1 = self._function1.evaluate_jacobian_outputs()
+        jf2 = self._function2.evaluate_jacobian_outputs()
+        jac = jf1.dot(jf2).tocoo()
+        return jac
 
     def evaluate_hessian_outputs(self):
-        pass
+        """
+        Application of the chain rule yields:
+
+        Hfog(x) = (Jf(g(x)) * Hg(x)) + (Jg(x)^T * Hf(g(x)) * Jg(x))
+
+        Mutiplications are matrix-tensor products that return tensors.
+        The tensor rank(s) along which each multiply occurs (i.e. which
+        "sub-matrix" or "sub-vector" of the tensor gets multiplied)
+        are clear from dimensions, and the fact that each matrix along
+        the first rank of the resulting tensor must be symmetric.
+
+        The two terms in the above right-hand-side are referred to
+        as term1 and term2 in the code.
+
+        """
+        # In my applications so far, Jacobian evaluation
+        # has been very fast. If this changes, I may
+        # have to cache these matrices.
+        jf1 = self._function1.evaluate_jacobian_outputs()
+        jf2 = self._function2.evaluate_jacobian_outputs()
+
+        hf1 = self._function1.evaluate_hessian_outputs()
+        hf2 = self._function2.evaluate_hessian_outputs()
+
+        n_in = self._function2.n_inputs()
+        n_f2_out = self._function2.n_outputs()
+
+        # Multiply jf2 by each matrix defined by a coordinate of the
+        # first rank of hf1
+        term2 = [jf2.transpose().dot(H).dot(jf2) for H in hf1]
+
+        # Now need to multiply jf1 by each of nx^2 vectors
+
+        # Get rows of "flattened tensor" matrix
+        hf2_flat_rows = [H.reshape((1, n_in**2)).tocsr() for H in hf2]
+        # Unclear whether we should convert these matrices to CSR.
+        # SciPy claims this will be faster. Seems true for n_in > ~5000.
+        # TODO: Benchmark in real problems.
+
+        # Stack rows
+        hf2_flat = sps.vstack(hf2_flat_rows)
+
+        # Multiply flattened Hessian-2 by Jacobian-1
+        term1_flat = jf1.dot(hf2_flat).tocsr()
+        # Very important to make sure this matrix is in CSR format for
+        # fast getrow below.
+
+        # Each row of the matrix becomes a matrix of the tensor
+        term1 = [
+            term1_flat.getrow(i).reshape((n_in, n_in)) for i in range(n_f2_out)
+            ]
+        hessian = [(mat1 + mat2).tocoo() for mat1, mat2 in zip(term1, term2)]
+
+        return hessian
