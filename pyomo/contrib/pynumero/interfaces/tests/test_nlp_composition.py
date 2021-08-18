@@ -96,7 +96,7 @@ class SimpleModel(ExternalGreyBoxModel):
         return sps.coo_matrix(self.jacobian_outputs)
 
     def evaluate_hessian_outputs(self):
-        # TODO: What data format should I use for sparse tensors.
+        # TODO: What data format should I use for sparse tensors?
         # Want:
         # - fast access along rank 1 (to get an individual output's hessian matrix)
         # - Fast multiplication and transpose for a slice across rank 1
