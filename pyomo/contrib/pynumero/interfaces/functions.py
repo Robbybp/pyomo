@@ -184,15 +184,17 @@ class FunctionFromNLP(VectorValuedExternalFunction):
         con_jac = self._nlp.evaluate_jacobian()
         if self._include_objective:
             obj_grad = self._nlp.evaluate_grad_objective()
+            obj_grad = obj_grad.reshape((1, self.n_inputs()))
+            obj_grad = sps.coo_matrix(obj_grad)
             # Here we assume something about the "orientation"
             # of the Jacobian.
-            return np.vstack((obj_grad, con_jac))
+            return sps.vstack((obj_grad, con_jac))
         else:
             return con_jac
 
     def evaluate_hessian_outputs(self):
         con_offset = int(self._include_objective)
-        out_hess = [None for _ in range(len(self.n_outputs()))]
+        out_hess = [None for _ in range(self.n_outputs())]
 
         cached_duals = self._nlp.get_duals()
         cached_obj_factor = self._nlp.get_obj_factor()
@@ -206,15 +208,16 @@ class FunctionFromNLP(VectorValuedExternalFunction):
             out_hess[0] = self._nlp.evaluate_hessian_lag()
             self._nlp.set_obj_factor(0.0)
 
-        self._nlp.set_ob
         for i in range(self.n_outputs()):
             # TODO: outputs don't necessarily include all constraints in order
-            con_idx = i + con_offset
+            con_idx = i - con_offset
             duals[con_idx] = 1.0
             self._nlp.set_duals(duals)
             # TODO: restrict Hessian to variables that are inputs
-            con_hess[con_idx] = self._nlp.evaluate_hessian_lag()
+            out_hess[con_idx] = self._nlp.evaluate_hessian_lag()
             duals[con_idx] = 0.0
 
         self._nlp.set_duals(cached_duals)
         self._nlp.set_obj_factor(cached_obj_factor)
+
+        return out_hess
