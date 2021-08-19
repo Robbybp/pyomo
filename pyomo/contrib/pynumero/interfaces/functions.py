@@ -143,3 +143,78 @@ class FunctionComposition(VectorValuedExternalFunction):
         hessian = [(mat1 + mat2).tocoo() for mat1, mat2 in zip(term1, term2)]
 
         return hessian
+
+
+class FunctionFromNLP(VectorValuedExternalFunction):
+
+    def __init__(self, nlp):
+        """
+        Options to support, eventually:
+        - Include vs. not include the objective
+        - include a subset of the constraint bodies as outputs
+        - include a subset of the variables as inputs
+        """
+        self._nlp = nlp
+        self._include_objective = True
+        self._input_coords = np.arange(self._nlp.n_primals())
+        self._output_coords = np.arange(self._nlp.n_constraints())
+
+    def n_inputs(self):
+        return len(self._input_coords)
+
+    def n_outputs(self):
+        return int(self._include_objective) + len(self._output_coords)
+
+    def set_input_values(self, input_values):
+        self._nlp.set_primals(input_values)
+
+    def evaluate_outputs(self):
+        # TODO: Extract subvector
+        constraints = self._nlp.evaluate_constraints()
+        # Here we assume the objects returned by the nlp
+        # evaluation routines will by compatible with NumPy.
+        if self._include_objective:
+            objective = np.array([self._nlp.evaluate_objective()])
+            return np.concatenate((objective, constraints))
+        else:
+            return constraints
+
+    def evaluate_jacobian_outputs(self):
+        # TODO: Extract submatrix
+        con_jac = self._nlp.evaluate_jacobian()
+        if self._include_objective:
+            obj_grad = self._nlp.evaluate_grad_objective()
+            # Here we assume something about the "orientation"
+            # of the Jacobian.
+            return np.vstack((obj_grad, con_jac))
+        else:
+            return con_jac
+
+    def evaluate_hessian_outputs(self):
+        con_offset = int(self._include_objective)
+        out_hess = [None for _ in range(len(self.n_outputs()))]
+
+        cached_duals = self._nlp.get_duals()
+        cached_obj_factor = self._nlp.get_obj_factor()
+        self._nlp.set_obj_factor(0.0)
+
+        duals = np.zeros(self._nlp.n_constraints())
+        self._nlp.set_duals(duals)
+
+        if self._include_objective:
+            self._nlp.set_obj_factor(1.0)
+            out_hess[0] = self._nlp.evaluate_hessian_lag()
+            self._nlp.set_obj_factor(0.0)
+
+        self._nlp.set_ob
+        for i in range(self.n_outputs()):
+            # TODO: outputs don't necessarily include all constraints in order
+            con_idx = i + con_offset
+            duals[con_idx] = 1.0
+            self._nlp.set_duals(duals)
+            # TODO: restrict Hessian to variables that are inputs
+            con_hess[con_idx] = self._nlp.evaluate_hessian_lag()
+            duals[con_idx] = 0.0
+
+        self._nlp.set_duals(cached_duals)
+        self._nlp.set_obj_factor(cached_obj_factor)
