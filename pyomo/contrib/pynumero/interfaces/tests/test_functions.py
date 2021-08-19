@@ -317,6 +317,12 @@ class TestFunctionFromNLP(unittest.TestCase):
         fcn.set_input_values(input_values)
 
         hessian = fcn.evaluate_hessian_outputs()
+        pred_hess = [
+            [[2., 0.], [0., 4.]],
+            [[0., 1.], [1., 0.]],
+            ]
+        for pred, act in zip(pred_hess, hessian):
+            np.testing.assert_allclose(pred, act.toarray())
 
 
 class _TestCompositionNewVariables(unittest.TestCase):
