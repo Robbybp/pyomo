@@ -208,13 +208,13 @@ class FunctionFromNLP(VectorValuedExternalFunction):
             out_hess[0] = self._nlp.evaluate_hessian_lag()
             self._nlp.set_obj_factor(0.0)
 
-        for i in range(self.n_outputs()):
+        for i in range(con_offset, self.n_outputs()):
             # TODO: outputs don't necessarily include all constraints in order
             con_idx = i - con_offset
             duals[con_idx] = 1.0
             self._nlp.set_duals(duals)
             # TODO: restrict Hessian to variables that are inputs
-            out_hess[con_idx] = self._nlp.evaluate_hessian_lag()
+            out_hess[i] = self._nlp.evaluate_hessian_lag()
             duals[con_idx] = 0.0
 
         self._nlp.set_duals(cached_duals)
