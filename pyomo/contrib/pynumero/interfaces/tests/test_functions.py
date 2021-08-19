@@ -267,14 +267,56 @@ class TestFunctionFromNLP(unittest.TestCase):
         nlp = PyomoNLP(m)
         fcn = FunctionFromNLP(nlp)
 
-        input_values = np.array([5.0, 5.0])
+        self.assertEqual(fcn.n_inputs(), 2)
+        self.assertEqual(fcn.n_outputs(), 2)
+
+        x, u = 5.0, 4.0
+        x_idx, u_idx = nlp.get_primal_indices([m.x, m.u])
+        input_values = np.zeros(fcn.n_inputs())
+        input_values[x_idx] = x
+        input_values[u_idx] = u
         fcn.set_input_values(input_values)
 
-        self.assertEqual(fcn.n_outputs(), 2)
         outputs = fcn.evaluate_outputs()
 
-        pred_outputs = [75., 24.]
+        # Know that the objective comes before the (single) constraint,
+        # so don't have to get any indices here.
+        pred_outputs = [57., 19.]
         np.testing.assert_allclose(outputs, pred_outputs)
+
+    def test_jacobian(self):
+        m = make_model1_xu()
+        nlp = PyomoNLP(m)
+        fcn = FunctionFromNLP(nlp)
+
+        x, u = 5.0, 4.0
+        x_idx, u_idx = nlp.get_primal_indices([m.x, m.u])
+        input_values = np.zeros(2)
+        input_values[x_idx] = x
+        input_values[u_idx] = u
+        fcn.set_input_values(input_values)
+
+        jacobian = fcn.evaluate_jacobian_outputs()
+        pred_jac = np.zeros((2,2))
+        pred_jac[0, x_idx] = 2*x
+        pred_jac[0, u_idx] = 4*u
+        pred_jac[1, x_idx] = u
+        pred_jac[1, u_idx] = x
+        np.testing.assert_allclose(jacobian.toarray(), pred_jac)
+
+    def test_hessian(self):
+        m = make_model1_xu()
+        nlp = PyomoNLP(m)
+        fcn = FunctionFromNLP(nlp)
+
+        x, u = 5.0, 4.0
+        x_idx, u_idx = nlp.get_primal_indices([m.x, m.u])
+        input_values = np.zeros(2)
+        input_values[x_idx] = x
+        input_values[u_idx] = u
+        fcn.set_input_values(input_values)
+
+        hessian = fcn.evaluate_hessian_outputs()
 
 
 class _TestCompositionNewVariables(unittest.TestCase):
