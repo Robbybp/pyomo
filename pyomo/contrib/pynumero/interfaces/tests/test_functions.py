@@ -43,10 +43,14 @@ from pyomo.contrib.pynumero.interfaces.pyomo_grey_box_nlp import (
 from pyomo.contrib.pynumero.interfaces.tests.external_grey_box_models import (
     PressureDropTwoOutputsWithHessian,
 )
+from pyomo.contrib.pynumero.interfaces.pyomo_nlp import (
+    PyomoNLP,
+)
 from pyomo.contrib.pynumero.interfaces.functions import (
-        VectorValuedExternalFunction,
-        FunctionComposition,
-        )
+    VectorValuedExternalFunction,
+    FunctionComposition,
+    FunctionFromNLP,
+)
 
 if not pyo.SolverFactory("ipopt").available():
     raise unittest.SkipTest(
@@ -254,6 +258,23 @@ class TestSimpleFunctionComposition(unittest.TestCase):
                 ]
         for pred, act in zip(hess_pred, hessian):
             np.testing.assert_allclose(pred, act.toarray())
+
+
+class TestFunctionFromNLP(unittest.TestCase):
+
+    def test_outputs(self):
+        m = make_model1_xu()
+        nlp = PyomoNLP(m)
+        fcn = FunctionFromNLP(nlp)
+
+        input_values = np.array([5.0, 5.0])
+        fcn.set_input_values(input_values)
+
+        self.assertEqual(fcn.n_outputs(), 2)
+        outputs = fcn.evaluate_outputs()
+
+        pred_outputs = [75., 24.]
+        np.testing.assert_allclose(outputs, pred_outputs)
 
 
 class _TestCompositionNewVariables(unittest.TestCase):
