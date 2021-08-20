@@ -33,6 +33,93 @@ class VectorValuedExternalFunction(object):
         pass
 
 
+class FunctionStack(VectorValuedExternalFunction):
+
+    def __init__(self, *functions):
+        """
+        Suppose we are given two functions,
+
+        f: A -> C
+        g: B -> D
+
+        This class represents h, such that
+
+        h: A x B -> C x D
+        h(a, b) = (f(a), g(b))
+
+        """
+        self._functions = functions
+        offset = 0
+        self._input_partition = [None for _ in self._functions]
+        for i, f in enumerate(self._functions):
+            n_inputs = f.n_inputs()
+            start_idx = offset
+            end_idx = offset + n_inputs
+            self._input_partition[i] = (start_idx, end_idx)
+
+    def n_inputs(self):
+        return sum(f.n_inputs() for f in self._functions)
+
+    def n_outputs(self):
+        return sum(f.n_outputs() for f in self._functions)
+
+    def set_input_values(self, input_values):
+        offset = 0
+        for (idx1, idx2), f in zip(self._input_partition, self._functions):
+            # Assume input_values is compatible with slicing...
+            f.set_input_values(input_values[idx1:idx2])
+
+    def evaluate_outputs(self):
+        outputs = tuple(f.evaluate_outputs() for f in self._functions)
+        output = np.concatenate(outputs)
+        return output
+
+    def evaluate_jacobian_outputs(self):
+        jacobians = tuple(
+            f.evaluate_jacobian_outputs() for f in self._functions
+            )
+        jacobian = np.vstack(jacobians)
+        return jacobian
+
+    def evaluate_hessian_outputs(self):
+        hessians = sum(
+            f.evaluate_hessian_outputs() for f in self._functions,
+            [],
+        )
+
+
+class FunctionCombination(FunctionStack):
+
+    def __init__(self, *functions):
+        """
+        Suppose we are given two functions,
+
+        f: A -> B
+        g: A -> C
+
+        This class represents h, such that
+
+        h: A -> B x C,
+        h(a) = (f(a), g(a))
+
+        """
+        self._functions = functions
+        if len(functions) == 0:
+            raise ValueError(
+                "Must provide at least one function as an argument "
+                "for %s" % self.__class__
+                )
+        assert all(f.n_inputs() == functions[0].n_inputs() for f in functions)
+        self._n_inputs = functions[0].n_inputs()
+
+    def n_inputs(self):
+        return self._n_inputs
+
+    def set_input_values(self, input_values):
+        for f in functions:
+            f.set_input_values(input_values)
+
+
 class FunctionComposition(VectorValuedExternalFunction):
 
     def __init__(self, function1, function2, coord_match=None):
