@@ -324,6 +324,11 @@ class TestFunctionFromNLP(unittest.TestCase):
         for pred, act in zip(pred_hess, hessian):
             np.testing.assert_allclose(pred, act.toarray())
 
+    def test_embed(self):
+        m = make_model1_xu()
+        nlp = PyomoNLP(m)
+        fcn = FunctionFromNLP(nlp)
+
 
 class _TestCompositionNewVariables(unittest.TestCase):
 
