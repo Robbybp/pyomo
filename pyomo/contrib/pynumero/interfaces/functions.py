@@ -33,6 +33,40 @@ class VectorValuedExternalFunction(object):
         pass
 
 
+class IdentityFunction(VectorValuedExternalFunction):
+    """
+    f: A -> A, f(a) = a
+    """
+
+    def __init__(self, n):
+        self._dim = n
+        self._inputs = np.zeros(n)
+        self._outputs = np.zeros(n)
+        self._jacobian_outputs = sps.identity(n)
+        self._hessian_outputs = [
+            sps.coo_matrix((n, n)) for _ in range(n)
+        ]
+
+    def n_inputs(self):
+        return self._dim
+
+    def n_outputs(self):
+        return self._dim
+
+    def set_input_values(self, input_values):
+        self._inputs = input_values
+        self._outputs = input_values
+
+    def evaluate_outputs(self):
+        return self._outputs
+
+    def evaluate_jacobian_outputs(self):
+        return self._jacobian_outputs
+
+    def evaluate_hessian_outputs(self):
+        return self._hessian_outputs
+
+
 class FunctionStack(VectorValuedExternalFunction):
 
     def __init__(self, *functions):
@@ -60,6 +94,17 @@ class FunctionStack(VectorValuedExternalFunction):
     def n_inputs(self):
         return sum(f.n_inputs() for f in self._functions)
 
+    def get_input_offset(self, i):
+        """
+        Get the first input coordinate of the i-th function
+        Parameters
+        ----------
+        i: int
+            The function coordinate whose input coordinate we want.
+
+        """
+        return self._input_partition[i][0]
+
     def n_outputs(self):
         return sum(f.n_outputs() for f in self._functions)
 
@@ -83,7 +128,7 @@ class FunctionStack(VectorValuedExternalFunction):
 
     def evaluate_hessian_outputs(self):
         hessians = sum(
-            f.evaluate_hessian_outputs() for f in self._functions,
+            (f.evaluate_hessian_outputs() for f in self._functions),
             [],
         )
 
@@ -101,6 +146,9 @@ class FunctionCombination(FunctionStack):
 
         h: A -> B x C,
         h(a) = (f(a), g(a))
+
+        This is different from a FunctionStack as all functions use
+        the same inputs.
 
         """
         self._functions = functions
