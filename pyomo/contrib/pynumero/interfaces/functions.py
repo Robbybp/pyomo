@@ -90,6 +90,7 @@ class FunctionStack(VectorValuedExternalFunction):
             start_idx = offset
             end_idx = offset + n_inputs
             self._input_partition[i] = (start_idx, end_idx)
+            offset += n_inputs
 
     def n_inputs(self):
         return sum(f.n_inputs() for f in self._functions)
