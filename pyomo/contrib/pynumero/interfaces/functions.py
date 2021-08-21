@@ -104,13 +104,11 @@ class FunctionCombination(FunctionStack):
 
         """
         self._functions = functions
-        if len(functions) == 0:
-            raise ValueError(
-                "Must provide at least one function as an argument "
-                "for %s" % self.__class__
-                )
-        assert all(f.n_inputs() == functions[0].n_inputs() for f in functions)
-        self._n_inputs = functions[0].n_inputs()
+        if len(functions) != 0:
+            assert all(f.n_inputs() == functions[0].n_inputs() for f in functions)
+            self._n_inputs = functions[0].n_inputs()
+        else:
+            self._n_inputs = 0
 
     def n_inputs(self):
         return self._n_inputs
