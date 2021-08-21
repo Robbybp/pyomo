@@ -50,6 +50,8 @@ from pyomo.contrib.pynumero.interfaces.functions import (
     VectorValuedExternalFunction,
     FunctionComposition,
     FunctionFromNLP,
+    FunctionStack,
+    IdentityFunction,
 )
 
 if not pyo.SolverFactory("ipopt").available():
@@ -327,7 +329,41 @@ class TestFunctionFromNLP(unittest.TestCase):
     def test_embed(self):
         m = make_model1_xu()
         nlp = PyomoNLP(m)
-        fcn = FunctionFromNLP(nlp)
+        nlp_fcn = FunctionFromNLP(nlp)
+
+        f1 = SimpleFunction2()
+        f2 = IdentityFunction(1)
+        functions = [None, None]
+        x_idx, u_idx = nlp.get_primal_indices([m.x, m.u])
+        functions[x_idx] = f1
+        functions[u_idx] = f2
+
+        to_embed = FunctionStack(*functions)
+        self.assertEqual(to_embed.n_inputs(), 3)
+        self.assertEqual(to_embed.n_outputs(), 2)
+
+        y, z, u = 2.0, 3.0, 4.0
+        # Need a way to map my inputs to their coordinates
+        # I.e. need the offset
+        y_idx_f = to_embed.get_input_offset(x_idx)
+        z_idx_f = y_idx_f + 1
+        u_idx_f = to_embed.get_input_offset(u_idx)
+        inputs = np.zeros(3)
+        inputs[y_idx_f] = y
+        inputs[z_idx_f] = z
+        inputs[u_idx_f] = u
+
+        to_embed.set_input_values(inputs)
+        intermed_outputs = to_embed.evaluate_outputs()
+        # Now need a way to get output offsets.
+        # Easy here because my outputs are one-dimensional
+        pred_outputs = [None, None]
+        pred_outputs[x_idx] = np.sqrt(y**2 + z**2)
+        pred_outputs[u_idx] = u
+        np.testing.assert_allclose(intermed_outputs, pred_outputs)
+
+        fcn_comp = FunctionComposition(nlp_fcn, to_embed)
+        nlp_outputs = fcn_comp.evaluate_outputs()
 
 
 class _TestCompositionNewVariables(unittest.TestCase):
