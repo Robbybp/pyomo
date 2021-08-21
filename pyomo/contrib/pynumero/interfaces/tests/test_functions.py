@@ -383,6 +383,24 @@ class TestComposeFunctionFromNLP(self):
         ]
         np.testing.assert_allclose(nlp_outputs, pred_outputs)
 
+    def test_jacobian(self):
+        m = make_model1_xu()
+        nlp = PyomoNLP(m)
+        nlp_fcn = FunctionFromNLP(nlp)
+
+        f1 = SimpleFunction2()
+        f2 = IdentityFunction(1)
+        # Is this really the best way order the functions I need to
+        # send to the NLP?
+        # ... Ideally I re-order the NLP the match some partition
+        # in my model...
+        functions = [None, None]
+        x_idx, u_idx = nlp.get_primal_indices([m.x, m.u])
+        functions[x_idx] = f1
+        functions[u_idx] = f2
+
+        to_embed = FunctionStack(*functions)
+
 
 if __name__ == '__main__':
     unittest.main()
