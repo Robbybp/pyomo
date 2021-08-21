@@ -67,74 +67,7 @@ class IdentityFunction(VectorValuedExternalFunction):
         return self._hessian_outputs
 
 
-class FunctionStack(VectorValuedExternalFunction):
-
-    def __init__(self, *functions):
-        """
-        Suppose we are given two functions,
-
-        f: A -> C
-        g: B -> D
-
-        This class represents h, such that
-
-        h: A x B -> C x D
-        h(a, b) = (f(a), g(b))
-
-        """
-        self._functions = functions
-        offset = 0
-        self._input_partition = [None for _ in self._functions]
-        for i, f in enumerate(self._functions):
-            n_inputs = f.n_inputs()
-            start_idx = offset
-            end_idx = offset + n_inputs
-            self._input_partition[i] = (start_idx, end_idx)
-            offset += n_inputs
-
-    def n_inputs(self):
-        return sum(f.n_inputs() for f in self._functions)
-
-    def get_input_offset(self, i):
-        """
-        Get the first input coordinate of the i-th function
-        Parameters
-        ----------
-        i: int
-            The function coordinate whose input coordinate we want.
-
-        """
-        return self._input_partition[i][0]
-
-    def n_outputs(self):
-        return sum(f.n_outputs() for f in self._functions)
-
-    def set_input_values(self, input_values):
-        offset = 0
-        for (idx1, idx2), f in zip(self._input_partition, self._functions):
-            # Assume input_values is compatible with slicing...
-            f.set_input_values(input_values[idx1:idx2])
-
-    def evaluate_outputs(self):
-        outputs = tuple(f.evaluate_outputs() for f in self._functions)
-        output = np.concatenate(outputs)
-        return output
-
-    def evaluate_jacobian_outputs(self):
-        jacobians = tuple(
-            f.evaluate_jacobian_outputs() for f in self._functions
-            )
-        jacobian = np.vstack(jacobians)
-        return jacobian
-
-    def evaluate_hessian_outputs(self):
-        hessians = sum(
-            (f.evaluate_hessian_outputs() for f in self._functions),
-            [],
-        )
-
-
-class FunctionCombination(FunctionStack):
+class FunctionCombination(VectorValuedExternalFunction):
 
     def __init__(self, *functions):
         """
@@ -158,13 +91,110 @@ class FunctionCombination(FunctionStack):
             self._n_inputs = functions[0].n_inputs()
         else:
             self._n_inputs = 0
+        self._output_partition = self.get_output_partition()
+
+    def get_output_partition(self):
+        offset = 0
+        output_partition = [None for _ in self._functions]
+        for i, f in enumerate(self._functions):
+            n_outputs = f.n_outputs()
+            start_idx = offset
+            end_idx = offset + n_outputs
+            output_partition[i] = (start_idx, end_idx)
+            offset += n_outputs
+        return output_partition
+
+    def get_output_offset(self, i):
+        """
+        Get the first output coordinate of the i-th function
+
+        Parameters
+        ----------
+        i: int
+            The function coordinate whose output coordinate we want.
+
+        """
+        return self._output_partition[i][0]
 
     def n_inputs(self):
         return self._n_inputs
 
+    def n_outputs(self):
+        return sum(f.n_outputs() for f in self._functions)
+
     def set_input_values(self, input_values):
         for f in functions:
             f.set_input_values(input_values)
+
+    def evaluate_outputs(self):
+        outputs = tuple(f.evaluate_outputs() for f in self._functions)
+        output = np.concatenate(outputs)
+        return output
+
+    def evaluate_jacobian_outputs(self):
+        jacobians = tuple(
+            f.evaluate_jacobian_outputs() for f in self._functions
+            )
+        jacobian = np.vstack(jacobians)
+        return jacobian
+
+    def evaluate_hessian_outputs(self):
+        hessians = sum(
+            (f.evaluate_hessian_outputs() for f in self._functions),
+            [],
+        )
+
+
+class FunctionStack(FunctionCombination):
+
+    def __init__(self, *functions):
+        """
+        Suppose we are given two functions,
+
+        f: A -> C
+        g: B -> D
+
+        This class represents h, such that
+
+        h: A x B -> C x D
+        h(a, b) = (f(a), g(b))
+
+        """
+        self._functions = functions
+        self._input_partition = self.get_input_partition()
+
+    def get_input_partition(self):
+        offset = 0
+        # TODO: We will likely need the mapping from indices to
+        # functions to trace coordinates back to their sources
+        input_partition = [None for _ in self._functions]
+        for i, f in enumerate(self._functions):
+            n_inputs = f.n_inputs()
+            start_idx = offset
+            end_idx = offset + n_inputs
+            input_partition[i] = (start_idx, end_idx)
+            offset += n_inputs
+        return input_partition
+
+    def n_inputs(self):
+        return sum(f.n_inputs() for f in self._functions)
+
+    def get_input_offset(self, i):
+        """
+        Get the first input coordinate of the i-th function
+
+        Parameters
+        ----------
+        i: int
+            The function coordinate whose input coordinate we want.
+
+        """
+        return self._input_partition[i][0]
+
+    def set_input_values(self, input_values):
+        for (idx1, idx2), f in zip(self._input_partition, self._functions):
+            # Assume input_values is compatible with slicing...
+            f.set_input_values(input_values[idx1:idx2])
 
 
 class FunctionComposition(VectorValuedExternalFunction):
