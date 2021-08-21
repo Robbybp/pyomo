@@ -326,7 +326,10 @@ class TestFunctionFromNLP(unittest.TestCase):
         for pred, act in zip(pred_hess, hessian):
             np.testing.assert_allclose(pred, act.toarray())
 
-    def test_embed(self):
+
+class TestComposeFunctionFromNLP(self):
+
+    def test_outputs(self):
         m = make_model1_xu()
         nlp = PyomoNLP(m)
         nlp_fcn = FunctionFromNLP(nlp)
@@ -358,12 +361,27 @@ class TestFunctionFromNLP(unittest.TestCase):
         # Now need a way to get output offsets.
         # Easy here because my outputs are one-dimensional
         pred_outputs = [None, None]
+        # These indices could be different than x_idx and u_idx.
+        # x_idx and u_idx are just indices into the user-provided
+        # list of functions.
+        # These indices are actual inputs into the nlp.
+        x_idx_nlp = to_embed.get_output_offset(x_idx)
+        u_idx_nlp = to_embed.get_output_offset(u_idx)
         pred_outputs[x_idx] = np.sqrt(y**2 + z**2)
         pred_outputs[u_idx] = u
         np.testing.assert_allclose(intermed_outputs, pred_outputs)
 
         fcn_comp = FunctionComposition(nlp_fcn, to_embed)
+        fcn_comp.set_input_values(inputs)
         nlp_outputs = fcn_comp.evaluate_outputs()
+        # I know these coordinates because my NLP only has two
+        # "row coordinates." If it had multiple constraint functions,
+        # I would use get_constraint_indices.
+        pred_outputs = [
+            y**2 + z**2 + 2*u**2,
+            u*np.sqrt(y**2 + z**2) - 1.0,
+        ]
+        np.testing.assert_allclose(nlp_outputs, pred_outputs)
 
 
 class _TestCompositionNewVariables(unittest.TestCase):
