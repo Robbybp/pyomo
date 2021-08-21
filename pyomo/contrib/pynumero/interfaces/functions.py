@@ -162,6 +162,7 @@ class FunctionStack(FunctionCombination):
         """
         self._functions = functions
         self._input_partition = self.get_input_partition()
+        self._output_partition = self.get_output_partition()
 
     def get_input_partition(self):
         offset = 0
