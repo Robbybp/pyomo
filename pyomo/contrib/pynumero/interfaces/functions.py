@@ -201,15 +201,24 @@ class FunctionStack(FunctionCombination):
         jacobians = tuple(
             f.evaluate_jacobian_outputs() for f in self._functions
             )
-        import pdb; pdb.set_trace()
         jacobian = sps.block_diag(jacobians)
         return jacobian
 
     def evaluate_hessian_outputs(self):
-        hessians = sum(
-            (f.evaluate_hessian_outputs() for f in self._functions),
-            [],
-        )
+        # Each Hessian has a single non-zero diagonal block.
+        # We replace one of these blocks for each hessian.
+        blocks = [
+            sps.coo_matrix((f.n_inputs(), f.n_inputs()))
+            for f in self._functions
+        ]
+        hessian = []
+        for i, f in enumerate(self._functions):
+            cached_block = blocks[i]
+            for h in f.evaluate_hessian_outputs():
+                blocks[i] = h
+                hessian.append(sps.block_diag(blocks))
+            blocks[i] = cached_block
+        return hessian
 
 
 class FunctionComposition(VectorValuedExternalFunction):
