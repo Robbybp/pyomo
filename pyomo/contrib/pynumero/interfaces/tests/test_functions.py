@@ -464,6 +464,22 @@ class TestComposeFunctionFromNLP(unittest.TestCase):
         for pred, act in zip(pred_hess, intermed_hess):
             np.testing.assert_allclose(pred, act.toarray())
 
+        fcn_comp.set_input_values(inputs)
+        hessian = fcn_comp.evaluate_hessian_outputs()
+        pred_hess = np.zeros((2, 3, 3))
+        pred_hess[0, y_idx_f, y_idx_f] = 2.0
+        pred_hess[0, z_idx_f, z_idx_f] = 2.0
+        pred_hess[0, u_idx_f, u_idx_f] = 4.0
+        pred_hess[1, y_idx_f, y_idx_f] = u*z**2/denom**3
+        pred_hess[1, y_idx_f, z_idx_f] = -u*z*y/denom**3
+        pred_hess[1, z_idx_f, y_idx_f] = -u*z*y/denom**3
+        pred_hess[1, z_idx_f, z_idx_f] = u*y**2/denom**3
+
+        for pred, act in zip(pred_hess, hessian):
+            # TODO: Why are off-diagonal elements of first hessian
+            # nonzero???
+            np.testing.assert_allclose(pred, act.toarray())
+
 
 if __name__ == '__main__':
     unittest.main()
