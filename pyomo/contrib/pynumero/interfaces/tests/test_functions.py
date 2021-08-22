@@ -474,11 +474,15 @@ class TestComposeFunctionFromNLP(unittest.TestCase):
         pred_hess[1, y_idx_f, z_idx_f] = -u*z*y/denom**3
         pred_hess[1, z_idx_f, y_idx_f] = -u*z*y/denom**3
         pred_hess[1, z_idx_f, z_idx_f] = u*y**2/denom**3
+        pred_hess[1, z_idx_f, u_idx_f] = z/denom
+        pred_hess[1, u_idx_f, z_idx_f] = z/denom
+        pred_hess[1, y_idx_f, u_idx_f] = y/denom
+        pred_hess[1, u_idx_f, y_idx_f] = y/denom
 
         for pred, act in zip(pred_hess, hessian):
-            # TODO: Why are off-diagonal elements of first hessian
-            # nonzero???
-            np.testing.assert_allclose(pred, act.toarray())
+            # Need nonzero atol here because of numerical cancelation in the
+            # calculation of the objective Hessian.
+            np.testing.assert_allclose(pred, act.toarray(), atol=1e-15)
 
 
 if __name__ == '__main__':
