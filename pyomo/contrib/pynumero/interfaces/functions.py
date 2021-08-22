@@ -135,7 +135,7 @@ class FunctionCombination(VectorValuedExternalFunction):
         jacobians = tuple(
             f.evaluate_jacobian_outputs() for f in self._functions
             )
-        jacobian = np.vstack(jacobians)
+        jacobian = sps.vstack(jacobians)
         return jacobian
 
     def evaluate_hessian_outputs(self):
@@ -196,6 +196,20 @@ class FunctionStack(FunctionCombination):
         for (idx1, idx2), f in zip(self._input_partition, self._functions):
             # Assume input_values is compatible with slicing...
             f.set_input_values(input_values[idx1:idx2])
+
+    def evaluate_jacobian_outputs(self):
+        jacobians = tuple(
+            f.evaluate_jacobian_outputs() for f in self._functions
+            )
+        import pdb; pdb.set_trace()
+        jacobian = sps.block_diag(jacobians)
+        return jacobian
+
+    def evaluate_hessian_outputs(self):
+        hessians = sum(
+            (f.evaluate_hessian_outputs() for f in self._functions),
+            [],
+        )
 
 
 class FunctionComposition(VectorValuedExternalFunction):
