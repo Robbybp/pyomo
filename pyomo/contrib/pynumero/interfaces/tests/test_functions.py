@@ -327,7 +327,7 @@ class TestFunctionFromNLP(unittest.TestCase):
             np.testing.assert_allclose(pred, act.toarray())
 
 
-class TestComposeFunctionFromNLP(self):
+class TestComposeFunctionFromNLP(unittest.TestCase):
 
     def test_outputs(self):
         m = make_model1_xu()
@@ -400,6 +400,69 @@ class TestComposeFunctionFromNLP(self):
         functions[u_idx] = f2
 
         to_embed = FunctionStack(*functions)
+        fcn_comp = FunctionComposition(nlp_fcn, to_embed)
+
+        y, z, u = 2.0, 3.0, 4.0
+        inputs = np.array([y, z, u])
+        to_embed.set_input_values(inputs)
+        intermed_jac = to_embed.evaluate_jacobian_outputs()
+        # Now need a way to get output offsets.
+        # Easy here because my outputs are one-dimensional
+        pred_jac = np.zeros((2, 3))
+        y_idx_f = to_embed.get_input_offset(0)
+        z_idx_f = y_idx_f + 1
+        u_idx_f = to_embed.get_input_offset(1)
+        denom = np.sqrt(y**2 + z**2)
+        pred_jac[x_idx][y_idx_f] = y/denom
+        pred_jac[x_idx][z_idx_f] = z/denom
+        pred_jac[u_idx][u_idx_f] = 1.0
+        np.testing.assert_allclose(intermed_jac.toarray(), pred_jac)
+
+        fcn_comp.set_input_values(inputs)
+        jacobian = fcn_comp.evaluate_jacobian_outputs()
+        pred_jac = np.zeros((2, 3))
+        denom = np.sqrt(y**2 + z**2)
+        pred_jac[0, y_idx_f] = 2*y
+        pred_jac[0, z_idx_f] = 2*z
+        pred_jac[0, u_idx_f] = 4*u
+        pred_jac[1, y_idx_f] = u*y/denom
+        pred_jac[1, z_idx_f] = u*z/denom
+        pred_jac[1, u_idx_f] = denom
+        np.testing.assert_allclose(jacobian.toarray(), pred_jac)
+
+    def test_hessian(self):
+        m = make_model1_xu()
+        nlp = PyomoNLP(m)
+        nlp_fcn = FunctionFromNLP(nlp)
+
+        f1 = SimpleFunction2()
+        f2 = IdentityFunction(1)
+        functions = [None, None]
+        x_idx, u_idx = nlp.get_primal_indices([m.x, m.u])
+        functions[x_idx] = f1
+        functions[u_idx] = f2
+
+        to_embed = FunctionStack(*functions)
+        fcn_comp = FunctionComposition(nlp_fcn, to_embed)
+
+        y, z, u = 2.0, 3.0, 4.0
+        inputs = np.array([y, z, u])
+        to_embed.set_input_values(inputs)
+        intermed_hess = to_embed.evaluate_hessian_outputs()
+
+        pred_hess = np.zeros((2, 3, 3))
+        y_idx_f = to_embed.get_input_offset(0)
+        z_idx_f = y_idx_f + 1
+        u_idx_f = to_embed.get_input_offset(1)
+        denom = np.sqrt(y**2 + z**2)
+        pred_hess[x_idx, y_idx_f, y_idx_f] = z**2/denom**3
+        pred_hess[x_idx, y_idx_f, z_idx_f] = -y*z/denom**3
+        pred_hess[x_idx, z_idx_f, y_idx_f] = -y*z/denom**3
+        pred_hess[x_idx, z_idx_f, z_idx_f] = y**2/denom**3
+        # pred_hess[u_idx, ...] is all zeros
+
+        for pred, act in zip(pred_hess, intermed_hess):
+            np.testing.assert_allclose(pred, act.toarray())
 
 
 if __name__ == '__main__':
