@@ -481,25 +481,39 @@ class NLPFromFunction(NLP):
             function,
             primals_lb=None,
             primals_ub=None,
+            constraints_lb=None,
+            constraints_ub=None,
             ):
         primals_lb = {} if primals_lb is None else primals_lb
         primals_ub = {} if primals_ub is None else primals_ub
+        constraints_lb = {} if constraints_lb is None else constraints_lb
+        constraints_ub = {} if constraints_ub is None else constraints_ub
         self._function = function
-
-        self._primals = np.zeros(function.n_inputs())
 
         # TODO: Flag for whether objective is included in the function
         self._objective_included = True
         con_offset = int(self._objective_included)
         self._n_constraints = function.n_outputs() - con_offset
 
+        self._primals = self.init_primals()
+        self._duals = self.init_duals()
+        self._obj_factor = 1.0
+
         # Setup bound data structures
         self._primals_lb = np.array([-np.inf for _ in range(self.n_primals())])
-        self._primals_ub = np.array([-np.inf for _ in range(self.n_primals())])
+        self._primals_ub = np.array([np.inf for _ in range(self.n_primals())])
+        self._constraints_lb = np.array(
+            [-np.inf for _ in range(self.n_constraints())]
+        )
+        self._constraints_ub = np.array(
+            [np.inf for _ in range(self.n_constraints())]
+        )
 
         # Assuming these are dicts for now
         assert isinstance(primals_lb, dict)
         assert isinstance(primals_ub, dict)
+        assert isinstance(constraints_lb, dict)
+        assert isinstance(constraints_ub, dict)
 
         # TODO: Should be able to do this with vectorized syntax
         for i in range(self.n_primals()):
@@ -515,6 +529,22 @@ class NLPFromFunction(NLP):
                 obj, source_idx = self._function.get_input_source(i)
                 if isinstance(obj, NLP):
                     self._primals_ub[i] = obj.primals_ub()[source_idx]
+
+        for i in range(self.n_constraints()):
+            if i in constraints_lb:
+                self._constraints_lb[i] = constraints_lb[i]
+            else:
+                obj, src_idx = self._function.get_output_source(i + con_offset)
+                # src_idx should be a valid index into the NLP's constraints.
+                # This is how get_output_source is handled by FunctionFromNLP
+                if isinstance(obj, NLP):
+                    self._constraints_lb[i] = obj.constraints_lb()[src_idx]
+            if i in constraints_ub:
+                self._constraints_ub[i] = constraints_ub[i]
+            else:
+                obj, src_idx = self._function.get_output_source(i + con_offset)
+                if isinstance(obj, NLP):
+                    self._constraints_ub[i] = obj.constraints_ub()[src_idx]
 
     def n_primals(self):
         return self._function.n_inputs()
@@ -546,61 +576,92 @@ class NLPFromFunction(NLP):
         return self._primals_ub
 
     def constraints_lb(self):
-        raise NotImplementedError()
+        return self._constraints_lb
 
     def constraints_ub(self):
-        raise NotImplementedError()
+        return self._constraints_ub
 
     def init_primals(self):
-        raise NotImplementedError()
+        return np.zeros(self.n_primals())
 
     def init_duals(self):
-        raise NotImplementedError()
+        return np.zeros(self.n_constraints())
 
     def create_new_vector(self):
+        # I do not know where this is necessary.
         raise NotImplementedError()
 
     def set_primals(self, primals):
-        raise NotImplementedError()
+        np.copyto(self._primals, primals)
+        self._function.set_input_values(primals)
 
     def get_primals(self):
-        raise NotImplementedError()
+        return self._primals.copy()
 
     def set_duals(self, duals):
-        raise NotImplementedError()
+        np.copyto(self._duals, duals)
 
     def get_duals(self):
-        raise NotImplementedError()
+        return self._duals
 
     def set_obj_factor(self, obj_factor):
-        raise NotImplementedError()
+        self._obj_factor = obj_factor
 
     def get_obj_factor(self):
-        raise NotImplementedError()
+        return self._obj_factor
 
     def get_obj_scaling(self):
-        raise NotImplementedError()
+        return 1.0
 
     def get_primals_scaling(self):
-        raise NotImplementedError()
+        return np.ones(self.n_primals())
 
     def get_constraints_scaling(self):
-        raise NotImplementedError()
+        return np.ones(self.n_constraints())
 
     def evaluate_objective(self):
-        raise NotImplementedError()
+        if self._objective_included:
+            return self._function.evaluate_outputs()[0]
+        else:
+            # TODO: option for user-provided objective?
+            return 0.0
 
     def evaluate_grad_objective(self, out=None):
-        raise NotImplementedError()
+        if self._objective_included:
+            coo = self._function.evaluate_jacobian_outputs()
+            # TODO: cache these matrices
+            csr = coo.tocsr()
+            return csr[0, :].toarray()[0]
+        else:
+            return np.zeros(self.n_primals())
 
     def evaluate_constraints(self, out=None):
-        raise NotImplementedError()
+        outputs = self._function.evaluate_outputs()
+        if self._objective_included:
+            return outputs[1:]
+        else:
+            return outputs
 
     def evaluate_jacobian(self, out=None):
-        raise NotImplementedError()
+        coo = self._function.evaluate_jacobian_outputs()
+        if self._objective_included:
+            csr = coo.tocsr()
+            return csr[1:, :].tocoo()
+        else:
+            return coo
 
     def evaluate_hessian_lag(self, out=None):
-        raise NotImplementedError()
+        hessian = self._function.evaluate_hessian_outputs()
+        if self._objective_included:
+            obj_factor_array = np.array([self.get_obj_factor()])
+        else:
+            obj_factor_array = np.array([])
+        # NOTE: assuming here that if objective is not provided by the
+        # function, it has no contibution to the Hessian.
+        to_multiply = np.concatenate((obj_factor_array, self.get_duals()))
+        return sum(
+            mult*hess for mult, hess in zip(to_multiply, hessian)
+        ).tocoo()
 
     def report_solver_status(self, status_code, status_message):
         raise NotImplementedError()
