@@ -35,9 +35,11 @@ class VectorValuedExternalFunction(object):
         pass
 
     def get_input_source(self, idx):
+        assert idx >= 0 and idx < self.n_inputs()
         return self, idx
 
     def get_output_source(self, idx):
+        assert idx >= 0 and idx < self.n_outputs()
         return self, idx
 
 
@@ -109,11 +111,13 @@ class FunctionCombination(VectorValuedExternalFunction):
 
     def get_input_source(self, idx):
         # What to do here... This is not well-defined
+        assert idx >= 0 and idx < self.n_inputs()
         return self, idx
 
     def get_output_source(self, idx):
         fcn_idx = self._output_sources[idx]
-        return self._functions[fcn_idx].get_output_source(idx)
+        offset = self._output_partition[fcn_idx][0]
+        return self._functions[fcn_idx].get_output_source(idx - offset)
 
     def get_output_partition(self):
         offset = 0
@@ -196,7 +200,8 @@ class FunctionStack(FunctionCombination):
 
     def get_input_source(self, idx):
         fcn_idx = self._input_sources[idx]
-        return self._functions[fcn_idx].get_input_source(idx)
+        offset = self._input_partition[fcn_idx][0]
+        return self._functions[fcn_idx].get_input_source(idx - offset)
 
     def get_input_partition(self):
         offset = 0
@@ -391,6 +396,9 @@ class FunctionFromNLP(VectorValuedExternalFunction):
         """
         idx is a variable/column index in the NLP
         """
+        assert idx >= 0 and idx < self.n_inputs()
+        # TODO: Get the nlp index corresponding to this function
+        # index. For now they are the same.
         return self._nlp, idx
 
     def get_output_source(self, idx):
@@ -399,6 +407,7 @@ class FunctionFromNLP(VectorValuedExternalFunction):
         """
         # Need a way to encode whether idx is an objective
         # For now, -1 corresponds to the objective...
+        assert idx >= 0 and idx < self.n_outputs()
         return self._nlp, idx - int(self._include_objective)
 
     def n_inputs(self):
@@ -467,7 +476,14 @@ class FunctionFromNLP(VectorValuedExternalFunction):
 
 class NLPFromFunction(NLP):
 
-    def __init__(self, function):
+    def __init__(
+            self,
+            function,
+            primals_lb=None,
+            primals_ub=None,
+            ):
+        primals_lb = {} if primals_lb is None else primals_lb
+        primals_ub = {} if primals_ub is None else primals_ub
         self._function = function
 
         self._primals = np.zeros(function.n_inputs())
@@ -477,8 +493,114 @@ class NLPFromFunction(NLP):
         con_offset = int(self._objective_included)
         self._n_constraints = function.n_outputs() - con_offset
 
+        # Setup bound data structures
+        self._primals_lb = np.array([-np.inf for _ in range(self.n_primals())])
+        self._primals_ub = np.array([-np.inf for _ in range(self.n_primals())])
+
+        # Assuming these are dicts for now
+        assert isinstance(primals_lb, dict)
+        assert isinstance(primals_ub, dict)
+
+        # TODO: Should be able to do this with vectorized syntax
+        for i in range(self.n_primals()):
+            if i in primals_lb:
+                self._primals_lb[i] = primals_lb[i]
+            else:
+                obj, source_idx = self._function.get_input_source(i)
+                if isinstance(obj, NLP):
+                    self._primals_lb[i] = obj.primals_lb()[source_idx]
+            if i in primals_ub:
+                self._primals_ub[i] = primals_ub[i]
+            else:
+                obj, source_idx = self._function.get_input_source(i)
+                if isinstance(obj, NLP):
+                    self._primals_ub[i] = obj.primals_ub()[source_idx]
+
     def n_primals(self):
         return self._function.n_inputs()
 
     def n_constraints(self):
         return self._n_constraints
+
+    def nnz_jacobian(self):
+        """
+        This is nontrivial to do in general without just getting the numeric
+        Jacobian. CyIpoptNLP does this anyway, so no need to repeat the code
+        here for now.
+
+        """
+        raise NotImplementedError()
+
+    def nnz_hessian_lag(self):
+        """
+        This is nontrivial to do in general without just getting the numeric
+        Hessian, and is not necessary for our immediate CyIpopt application.
+
+        """
+        raise NotImplementedError()
+
+    def primals_lb(self):
+        return self._primals_lb
+
+    def primals_ub(self):
+        return self._primals_ub
+
+    def constraints_lb(self):
+        raise NotImplementedError()
+
+    def constraints_ub(self):
+        raise NotImplementedError()
+
+    def init_primals(self):
+        raise NotImplementedError()
+
+    def init_duals(self):
+        raise NotImplementedError()
+
+    def create_new_vector(self):
+        raise NotImplementedError()
+
+    def set_primals(self, primals):
+        raise NotImplementedError()
+
+    def get_primals(self):
+        raise NotImplementedError()
+
+    def set_duals(self, duals):
+        raise NotImplementedError()
+
+    def get_duals(self):
+        raise NotImplementedError()
+
+    def set_obj_factor(self, obj_factor):
+        raise NotImplementedError()
+
+    def get_obj_factor(self):
+        raise NotImplementedError()
+
+    def get_obj_scaling(self):
+        raise NotImplementedError()
+
+    def get_primals_scaling(self):
+        raise NotImplementedError()
+
+    def get_constraints_scaling(self):
+        raise NotImplementedError()
+
+    def evaluate_objective(self):
+        raise NotImplementedError()
+
+    def evaluate_grad_objective(self, out=None):
+        raise NotImplementedError()
+
+    def evaluate_constraints(self, out=None):
+        raise NotImplementedError()
+
+    def evaluate_jacobian(self, out=None):
+        raise NotImplementedError()
+
+    def evaluate_hessian_lag(self, out=None):
+        raise NotImplementedError()
+
+    def report_solver_status(self, status_code, status_message):
+        raise NotImplementedError()
