@@ -1,6 +1,8 @@
 import numpy as np
 import scipy.sparse as sps
 
+from pyomo.contrib.pynumero.interfaces.nlp import NLP
+
 
 class VectorValuedExternalFunction(object):
     """ 
@@ -409,3 +411,20 @@ class FunctionFromNLP(VectorValuedExternalFunction):
         self._nlp.set_obj_factor(cached_obj_factor)
 
         return out_hess
+
+
+class NLPFromFunction(NLP):
+
+    def __init__(self, function):
+        self._function = function
+
+        self._primals = np.zeros(function.n_inputs())
+
+        # TODO: Flag for whether objective is included in the function
+        self._n_constraints = function.n_outputs() - 1
+
+    def n_primals(self):
+        return self._function.n_inputs()
+
+    def n_constraints(self):
+        return self._n_constraints
