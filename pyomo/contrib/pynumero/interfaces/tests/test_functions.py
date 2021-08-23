@@ -52,6 +52,11 @@ from pyomo.contrib.pynumero.interfaces.functions import (
     FunctionFromNLP,
     FunctionStack,
     IdentityFunction,
+    NLPFromFunction,
+)
+from pyomo.contrib.pynumero.algorithms.solvers.cyipopt_solver import (
+    CyIpoptNLP,
+    CyIpoptSolver,
 )
 
 if not pyo.SolverFactory("ipopt").available():
@@ -483,6 +488,71 @@ class TestComposeFunctionFromNLP(unittest.TestCase):
             # Need nonzero atol here because of numerical cancelation in the
             # calculation of the objective Hessian.
             np.testing.assert_allclose(pred, act.toarray(), atol=1e-15)
+
+
+class TestNLPFromFunction(unittest.TestCase):
+
+    def test_primals(self):
+        m = make_model1_xu()
+        nlp = PyomoNLP(m)
+        nlp_fcn = FunctionFromNLP(nlp)
+
+        f1 = SimpleFunction2()
+        f2 = IdentityFunction(1)
+        functions = [None, None]
+        x_idx, u_idx = nlp.get_primal_indices([m.x, m.u])
+        functions[x_idx] = f1
+        functions[u_idx] = f2
+
+        to_embed = FunctionStack(*functions)
+        fcn_comp = FunctionComposition(nlp_fcn, to_embed)
+
+        nlp = NLPFromFunction(fcn_comp)
+        self.assertEqual(nlp.n_primals(), 3)
+
+    def test_constraints(self):
+        m = make_model1_xu()
+        nlp = PyomoNLP(m)
+        nlp_fcn = FunctionFromNLP(nlp)
+
+        f1 = SimpleFunction2()
+        f2 = IdentityFunction(1)
+        functions = [None, None]
+        x_idx, u_idx = nlp.get_primal_indices([m.x, m.u])
+        functions[x_idx] = f1
+        functions[u_idx] = f2
+
+        to_embed = FunctionStack(*functions)
+        fcn_comp = FunctionComposition(nlp_fcn, to_embed)
+
+        nlp = NLPFromFunction(fcn_comp)
+        self.assertEqual(nlp.n_constraints(), 1)
+        np.testing.assert_array_equal(nlp.constraints_lb(), [0.0])
+        np.testing.assert_array_equal(nlp.constraints_ub(), [0.0])
+
+    def test_cyipoptnlp(self):
+        m = make_model1_xu()
+        pyomo_nlp = PyomoNLP(m)
+        nlp_fcn = FunctionFromNLP(pyomo_nlp)
+
+        f1 = SimpleFunction2()
+        f2 = IdentityFunction(1)
+        functions = [None, None]
+        x_idx, u_idx = pyomo_nlp.get_primal_indices([m.x, m.u])
+        functions[x_idx] = f1
+        functions[u_idx] = f2
+
+        to_embed = FunctionStack(*functions)
+        fcn_comp = FunctionComposition(nlp_fcn, to_embed)
+
+        nlp = NLPFromFunction(fcn_comp)
+        problem = CyIpoptNLP(nlp)
+        cyipopt = CyIpoptSolver(problem)
+        
+        m2 = make_model1_yzu()
+        ipopt = pyo.SolverFactory("ipopt")
+        ipopt.solve(m2, tee=True)
+        import pdb; pdb.set_trace()
 
 
 if __name__ == '__main__':
