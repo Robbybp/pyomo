@@ -34,6 +34,12 @@ class VectorValuedExternalFunction(object):
         # Not all functions have second derivatives
         pass
 
+    def get_input_source(self, idx):
+        return self, idx
+
+    def get_output_source(self, idx):
+        return self, idx
+
 
 class IdentityFunction(VectorValuedExternalFunction):
     """
@@ -89,11 +95,25 @@ class FunctionCombination(VectorValuedExternalFunction):
         """
         self._functions = functions
         if len(functions) != 0:
-            assert all(f.n_inputs() == functions[0].n_inputs() for f in functions)
+            assert all(
+                f.n_inputs() == functions[0].n_inputs() for f in functions
+            )
             self._n_inputs = functions[0].n_inputs()
         else:
             self._n_inputs = 0
         self._output_partition = self.get_output_partition()
+        self._output_sources = [
+            i for i, (start_idx, end_idx) in enumerate(self._output_partition)
+            for _ in range(start_idx, end_idx)
+        ]
+
+    def get_input_source(self, idx):
+        # What to do here... This is not well-defined
+        return self, idx
+
+    def get_output_source(self, idx):
+        fcn_idx = self._output_sources[idx]
+        return self._functions[fcn_idx].get_output_source(idx)
 
     def get_output_partition(self):
         offset = 0
@@ -164,7 +184,19 @@ class FunctionStack(FunctionCombination):
         """
         self._functions = functions
         self._input_partition = self.get_input_partition()
+        self._input_sources = [
+            i for i, (start_idx, end_idx) in enumerate(self._input_partition)
+            for _ in range(start_idx, end_idx)
+        ]
         self._output_partition = self.get_output_partition()
+        self._output_sources = [
+            i for i, (start_idx, end_idx) in enumerate(self._output_partition)
+            for _ in range(start_idx, end_idx)
+        ]
+
+    def get_input_source(self, idx):
+        fcn_idx = self._input_sources[idx]
+        return self._functions[fcn_idx].get_input_source(idx)
 
     def get_input_partition(self):
         offset = 0
@@ -246,6 +278,12 @@ class FunctionComposition(VectorValuedExternalFunction):
 
         self._function1 = function1
         self._function2 = function2
+
+    def get_input_source(self, idx):
+        return self._function2.get_input_source(idx)
+
+    def get_output_source(self, idx):
+        return self._function1.get_output_source(idx)
 
     def n_inputs(self):
         return self._function2.n_inputs()
@@ -349,6 +387,20 @@ class FunctionFromNLP(VectorValuedExternalFunction):
         self._input_coords = np.arange(self._nlp.n_primals())
         self._output_coords = np.arange(self._nlp.n_constraints())
 
+    def get_input_source(self, idx):
+        """
+        idx is a variable/column index in the NLP
+        """
+        return self._nlp, idx
+
+    def get_output_source(self, idx):
+        """
+        idx is a constraint/objective/row index in the NLP
+        """
+        # Need a way to encode whether idx is an objective
+        # For now, -1 corresponds to the objective...
+        return self._nlp, idx - int(self._include_objective)
+
     def n_inputs(self):
         return len(self._input_coords)
 
@@ -421,7 +473,9 @@ class NLPFromFunction(NLP):
         self._primals = np.zeros(function.n_inputs())
 
         # TODO: Flag for whether objective is included in the function
-        self._n_constraints = function.n_outputs() - 1
+        self._objective_included = True
+        con_offset = int(self._objective_included)
+        self._n_constraints = function.n_outputs() - con_offset
 
     def n_primals(self):
         return self._function.n_inputs()
