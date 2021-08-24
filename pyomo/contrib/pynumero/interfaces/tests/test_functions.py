@@ -531,6 +531,12 @@ class TestNLPFromFunction(unittest.TestCase):
         np.testing.assert_array_equal(nlp.constraints_ub(), [0.0])
 
     def test_cyipoptnlp(self):
+        m = make_model1_yzu()
+        nlp = PyomoNLP(m)
+        problem = CyIpoptNLP(nlp)
+        cyipopt = CyIpoptSolver(problem)
+        cyipopt.solve(tee=True)
+
         m = make_model1_xu()
         pyomo_nlp = PyomoNLP(m)
         nlp_fcn = FunctionFromNLP(pyomo_nlp)
@@ -545,13 +551,17 @@ class TestNLPFromFunction(unittest.TestCase):
         to_embed = FunctionStack(*functions)
         fcn_comp = FunctionComposition(nlp_fcn, to_embed)
 
+        x0 = np.zeros(3)
+        x_idx_f = to_embed.get_input_offset(x_idx)
+        u_idx_f = to_embed.get_input_offset(u_idx)
+        x0[x_idx_f] = 1.5
+        x0[x_idx_f + 1] = 1.5
+        x0[u_idx_f] = 2.5
+
         nlp = NLPFromFunction(fcn_comp)
         problem = CyIpoptNLP(nlp)
         cyipopt = CyIpoptSolver(problem)
-        
-        m2 = make_model1_yzu()
-        ipopt = pyo.SolverFactory("ipopt")
-        ipopt.solve(m2, tee=True)
+        cyipopt.solve(x0=x0, tee=True)
         import pdb; pdb.set_trace()
 
 
