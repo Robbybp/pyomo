@@ -145,7 +145,6 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             ):
         if solver is None:
             solver = appsi.solvers.Ipopt()
-            #solver = SolverFactory("ipopt")
         self._solver = solver
 
         # We only need this block to construct the NLP, which wouldn't
@@ -160,6 +159,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         self._external_block = create_subsystem_block(
             external_cons, external_vars,
         )
+        # Because APPSI tracks mutable params, all mutable params
+        # must be discoverable on the block we sent it.
         mutable_params = []
         for con in external_cons:
             for param in identify_mutable_parameters(con.expr):
