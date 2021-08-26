@@ -13,7 +13,11 @@ from pyomo.environ import SolverFactory
 from pyomo.core.base.var import Var
 from pyomo.core.base.constraint import Constraint
 from pyomo.core.base.objective import Objective
-from pyomo.core.expr.visitor import identify_variables
+from pyomo.core.base.reference import Reference
+from pyomo.core.expr.visitor import (
+        identify_variables,
+        identify_mutable_parameters,
+        )
 from pyomo.common.collections import ComponentSet
 from pyomo.util.subsystems import (
         create_subsystem_block,
@@ -23,6 +27,7 @@ from pyomo.contrib.pynumero.interfaces.pyomo_nlp import PyomoNLP
 from pyomo.contrib.pynumero.interfaces.external_grey_box import (
         ExternalGreyBoxModel,
         )
+from pyomo.contrib import appsi
 import numpy as np
 import scipy.sparse as sps
 
@@ -139,7 +144,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             solver=None,
             ):
         if solver is None:
-            solver = SolverFactory("ipopt")
+            solver = appsi.solvers.Ipopt()
+            #solver = SolverFactory("ipopt")
         self._solver = solver
 
         # We only need this block to construct the NLP, which wouldn't
@@ -150,6 +156,15 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                 )
         self._block._obj = Objective(expr=0.0)
         self._nlp = PyomoNLP(self._block)
+
+        self._external_block = create_subsystem_block(
+            external_cons, external_vars,
+        )
+        mutable_params = []
+        for con in external_cons:
+            for param in identify_mutable_parameters(con.expr):
+                mutable_params.append(param)
+        self._external_block.params = Reference(mutable_params)
 
         assert len(external_vars) == len(external_cons)
 
@@ -181,7 +196,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         for var, val in zip(input_vars, input_values):
             var.set_value(val)
 
-        _temp = create_subsystem_block(external_cons, variables=external_vars)
+        #_temp = create_subsystem_block(external_cons, variables=external_vars)
+        _temp = self._external_block
         possible_input_vars = ComponentSet(input_vars)
         #for var in _temp.input_vars.values():
         #    # TODO: Is this check necessary?
