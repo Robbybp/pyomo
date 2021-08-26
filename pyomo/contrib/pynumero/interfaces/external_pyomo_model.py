@@ -192,24 +192,26 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         solver = self._solver
         external_cons = self.external_cons
         external_vars = self.external_vars
+        external_block = self._external_block
         input_vars = self.input_vars
 
         for var, val in zip(input_vars, input_values):
             var.set_value(val)
 
-        #_temp = create_subsystem_block(external_cons, variables=external_vars)
-        _temp = self._external_block
-        possible_input_vars = ComponentSet(input_vars)
-        #for var in _temp.input_vars.values():
+        #possible_input_vars = ComponentSet(input_vars)
+        #for var in external_block.input_vars.values():
         #    # TODO: Is this check necessary?
         #    assert var in possible_input_vars
 
-        with TemporarySubsystemManager(to_fix=list(_temp.input_vars.values())):
-            solver.solve(_temp)
+        with TemporarySubsystemManager(
+                to_fix=list(external_block.input_vars.values())
+                ):
+            solver.solve(external_block)
 
         input_values = ComponentMap(zip(input_vars, input_values))
-        # We are assuming that solver is an instance of appsi.solvers.Ipopt
-        external_values = solver.get_primals()
+        external_values = ComponentMap(
+            ((var, var.value) for var in external_vars)
+        )
 
         # Should we create the NLP from the original block or the temp block?
         # Need to create it from the original block because temp block won't
