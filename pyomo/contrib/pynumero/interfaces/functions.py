@@ -602,7 +602,7 @@ class NLPFromFunction(NLP):
         np.copyto(self._duals, duals)
 
     def get_duals(self):
-        return self._duals
+        return self._duals.copy()
 
     def set_obj_factor(self, obj_factor):
         self._obj_factor = obj_factor
