@@ -37,6 +37,7 @@ from pyomo.contrib.pynumero.interfaces.external_grey_box import (
     ScalarExternalGreyBoxBlock,
     IndexedExternalGreyBoxBlock,
 )
+from pyomo.contrib.pynumero.interfaces.nlp import NLP
 from pyomo.contrib.pynumero.interfaces.pyomo_grey_box_nlp import (
     PyomoNLPWithGreyBoxBlocks,
 )
@@ -563,6 +564,33 @@ class TestNLPFromFunction(unittest.TestCase):
         cyipopt = CyIpoptSolver(problem)
         cyipopt.solve(x0=x0, tee=True)
         import pdb; pdb.set_trace()
+
+
+class _TestReFixVars(unittest.TestCase):
+    """
+    This tests the functionality of using an NLP to "fix" variables
+    by adding equality constraints.
+
+    """
+
+    def _make_model(self):
+        m = pyo.ConcreteModel()
+        m.x = pyo.Var([1, 2], initialize=5.0)
+        m.u = pyo.Var(initialize=1.0)
+        m.eq_con = pyo.Constraint(expr=m.x[1]*m.x[2] - m.u == 0.0)
+        m.obj = pyo.Objective(expr=m.x[1]**2 + 3.0*m.x[2])
+        return m
+
+    def test_solves(self):
+        m_fixed = self._make_model()
+        m_fixed.u.fix(2.0)
+        solver = pyo.SolverFactory("ipopt")
+        solver.solve(m_fixed, tee=True)
+
+        m = self._make_model()
+        nlp = PyomoNLP(m)
+        # Get index of variable(s) we would like to fix
+        #
 
 
 if __name__ == '__main__':
