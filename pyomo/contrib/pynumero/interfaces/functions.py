@@ -149,7 +149,7 @@ class FunctionCombination(VectorValuedExternalFunction):
         return sum(f.n_outputs() for f in self._functions)
 
     def set_input_values(self, input_values):
-        for f in functions:
+        for f in self._functions:
             f.set_input_values(input_values)
 
     def evaluate_outputs(self):
@@ -169,6 +169,7 @@ class FunctionCombination(VectorValuedExternalFunction):
             (f.evaluate_hessian_outputs() for f in self._functions),
             [],
         )
+        return hessians
 
 
 class FunctionStack(FunctionCombination):
@@ -380,7 +381,7 @@ class FunctionComposition(VectorValuedExternalFunction):
 
 class FunctionFromNLP(VectorValuedExternalFunction):
 
-    def __init__(self, nlp):
+    def __init__(self, nlp, include_objective=True):
         """
         Options to support, eventually:
         - Include vs. not include the objective
@@ -388,7 +389,7 @@ class FunctionFromNLP(VectorValuedExternalFunction):
         - include a subset of the variables as inputs
         """
         self._nlp = nlp
-        self._include_objective = True
+        self._include_objective = include_objective
         self._input_coords = np.arange(self._nlp.n_primals())
         self._output_coords = np.arange(self._nlp.n_constraints())
 
