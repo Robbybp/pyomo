@@ -52,8 +52,12 @@ from pyomo.contrib.pynumero.interfaces.functions import (
     FunctionComposition,
     FunctionFromNLP,
     FunctionStack,
+    FunctionCombination,
     IdentityFunction,
     NLPFromFunction,
+)
+from pyomo.contrib.pynumero.interfaces.abstract_nlps import (
+    FixedVarNLP,
 )
 from pyomo.contrib.pynumero.algorithms.solvers.cyipopt_solver import (
     CyIpoptNLP,
@@ -578,10 +582,10 @@ class _TestReFixVars(unittest.TestCase):
         m.x = pyo.Var([1, 2], initialize=5.0)
         m.u = pyo.Var(initialize=1.0)
         m.eq_con = pyo.Constraint(expr=m.x[1]*m.x[2] - m.u == 0.0)
-        m.obj = pyo.Objective(expr=m.x[1]**2 + 3.0*m.x[2])
+        m.obj = pyo.Objective(expr=m.x[1]**2 + 3.0*m.x[2]**2)
         return m
 
-    def test_solves(self):
+    def _test_solves(self):
         m_fixed = self._make_model()
         m_fixed.u.fix(2.0)
         solver = pyo.SolverFactory("ipopt")
@@ -592,6 +596,126 @@ class _TestReFixVars(unittest.TestCase):
         # Get index of variable(s) we would like to fix
         #
 
+    def test_solve_fixed_nlp(self):
+        m = self._make_model()
+        nlp = PyomoNLP(m)
+        pyomo_vars = [m.x[1], m.x[2], m.u]
+        x1_idx, x2_idx, u_idx = nlp.get_primal_indices(pyomo_vars)
+        n_primals = nlp.n_primals()
+        value_map = {u_idx: 2.0}
+        fixing_constraints = FixedVarNLP(n_primals, value_map)
+
+        nlp_fcn = FunctionFromNLP(nlp)
+        fixing_fcn = FunctionFromNLP(
+            fixing_constraints, include_objective=False
+        )
+
+        combined_fcn = FunctionCombination(nlp_fcn, fixing_fcn)
+        combined_nlp = NLPFromFunction(combined_fcn)
+
+        x0 = nlp.get_primals()
+        combined_nlp.set_primals(x0)
+
+        problem = CyIpoptNLP(combined_nlp)
+        cyipopt = CyIpoptSolver(problem)
+        cyipopt.solve(x0=x0, tee=True)
+        import pdb; pdb.set_trace()
+
+    def test_fixed_nlp(self):
+        m = self._make_model()
+        nlp = PyomoNLP(m)
+        pyomo_vars = [m.x[1], m.x[2], m.u]
+        x1_idx, x2_idx, u_idx = nlp.get_primal_indices(pyomo_vars)
+        n_primals = nlp.n_primals()
+        value_map = {u_idx: 2.0}
+        fixing_constraints = FixedVarNLP(n_primals, value_map)
+
+        nlp_fcn = FunctionFromNLP(nlp)
+        fixing_fcn = FunctionFromNLP(
+            fixing_constraints, include_objective=False
+        )
+
+        combined_fcn = FunctionCombination(nlp_fcn, fixing_fcn)
+        combined_nlp = NLPFromFunction(combined_fcn)
+        self.assertEqual(combined_nlp.n_primals(), 3)
+        self.assertEqual(combined_nlp.n_constraints(), 2)
+
+        primals = nlp.get_primals()
+        # This is necessary as I don't yet automatically set
+        # init primals of an NLP-from-function
+        combined_nlp.set_primals(primals)
+
+        model_con_idx = nlp.get_constraint_indices([m.eq_con])[0]
+        # I happen to know that the "fixing constraints" come after
+        # the "model constraints"
+        fix_con_idx = nlp.n_constraints()
+
+        resid = combined_nlp.evaluate_constraints()
+        pred_resid = np.zeros(2)
+        pred_resid[model_con_idx] = pyo.value(m.eq_con.body)
+        pred_resid[fix_con_idx] = m.u.value - 2.0
+        np.testing.assert_allclose(resid, pred_resid)
+
+        jac = combined_nlp.evaluate_jacobian()
+        row = []
+        col = []
+        data = []
+
+        row.append(model_con_idx)
+        col.append(x1_idx)
+        data.append(primals[x2_idx])
+
+        row.append(model_con_idx)
+        col.append(x2_idx)
+        data.append(primals[x1_idx])
+
+        row.append(model_con_idx)
+        col.append(u_idx)
+        data.append(-1.0)
+
+        row.append(fix_con_idx)
+        col.append(u_idx)
+        data.append(1.0)
+
+        pred_jac = sps.coo_matrix((data, (row, col)), shape=(2, 3))
+        np.testing.assert_allclose(jac.toarray(), pred_jac.toarray())
+
+        grad_obj = combined_nlp.evaluate_grad_objective()
+        pred_grad = np.zeros(combined_nlp.n_primals())
+        pred_grad[x1_idx] = 2.0*primals[x1_idx]
+        pred_grad[x2_idx] = 6.0*primals[x2_idx]
+        np.testing.assert_allclose(grad_obj, pred_grad)
+
+        combined_nlp.set_duals(np.ones(combined_nlp.n_constraints()))
+        hess = combined_nlp.evaluate_hessian_lag()
+        row = []
+        col = []
+        data = []
+
+        row.append(x1_idx)
+        col.append(x2_idx)
+        data.append(1.0)
+
+        row.append(x2_idx)
+        col.append(x1_idx)
+        data.append(1.0)
+        con_hess = sps.coo_matrix((data, (row, col)), shape=(3, 3))
+
+        row = []
+        col = []
+        data = []
+        row.append(x1_idx)
+        col.append(x1_idx)
+        data.append(2.0)
+
+        row.append(x2_idx)
+        col.append(x2_idx)
+        data.append(6.0)
+        obj_hess = sps.coo_matrix((data, (row, col)), shape=(3, 3))
+        pred_hess = con_hess + obj_hess
+        np.testing.assert_allclose(hess.toarray(), pred_hess.toarray())
+
 
 if __name__ == '__main__':
-    unittest.main()
+    #unittest.main()
+    _TestReFixVars().test_solve_fixed_nlp()
