@@ -20,13 +20,30 @@ class FixedVarNLP(NLP):
 
     def __init__(self, n_primals, value_map):
         self._n_primals = n_primals
-        self._value_map = value_map
-        self._n_constraints = len(value_map)
+        self._value_map = dict(value_map) # Copy the user's dict
+        for i in value_map:
+            assert 0 <= i and i < n_primals
+        self._fixed_primal_coords = np.array([
+            i for i in range(n_primals) if i in value_map
+        ])
+        self._fixed_primal_values = np.array([
+            value_map[i] for i in range(n_primals) if i in value_map
+        ])
+        n_constraints = len(value_map)
+        self._n_constraints = n_constraints
         self._primals_lb = np.array([-np.inf for _ in range(n_primals)])
         self._primals_ub = np.array([np.inf for _ in range(n_primals)])
         self._constraints_lb = np.array([0.0 for _ in range(n_constraints)])
         self._constraints_ub = np.array([0.0 for _ in range(n_constraints)])
         self._obj_factor = 1.0
+
+        self._primals = self.init_primals()
+        self._duals = self.init_duals()
+
+    def update_fixed_values(self, value_map):
+        assert all(i in self._value_map for i in value_map)
+        for i, newval in value_map.items():
+            self._value_map[i] = newval
     
     def n_primals(self):
         return self._n_primals
