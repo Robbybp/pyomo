@@ -596,6 +596,12 @@ class _TestReFixVars(unittest.TestCase):
         # Get index of variable(s) we would like to fix
         #
 
+    def test_solve_constrained_model(self):
+        m = self._make_model()
+        m.fix_con = pyo.Constraint(expr=m.u - 2.0 == 0)
+        solver = pyo.SolverFactory("ipopt")
+        solver.solve(m, tee=True)
+
     def test_solve_fixed_nlp(self):
         m = self._make_model()
         nlp = PyomoNLP(m)
@@ -613,7 +619,8 @@ class _TestReFixVars(unittest.TestCase):
         combined_fcn = FunctionCombination(nlp_fcn, fixing_fcn)
         combined_nlp = NLPFromFunction(combined_fcn)
 
-        x0 = nlp.get_primals()
+        #x0 = nlp.get_primals()
+        x0 = np.array([1.0, 1.0, 2.0])
         combined_nlp.set_primals(x0)
 
         problem = CyIpoptNLP(combined_nlp)
@@ -718,4 +725,5 @@ class _TestReFixVars(unittest.TestCase):
 
 if __name__ == '__main__':
     #unittest.main()
+    _TestReFixVars().test_solve_constrained_model()
     _TestReFixVars().test_solve_fixed_nlp()
