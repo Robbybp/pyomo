@@ -2,6 +2,7 @@ import numpy as np
 import scipy.sparse as sps
 
 from pyomo.contrib.pynumero.interfaces.nlp import NLP
+from pyomo.contrib.pynumero.interfaces.utils import CondensedSparseSummation
 
 
 class VectorValuedExternalFunction(object):
@@ -547,6 +548,8 @@ class NLPFromFunction(NLP):
                 if isinstance(obj, NLP):
                     self._constraints_ub[i] = obj.constraints_ub()[src_idx]
 
+        self._hessian_sum = None
+
     def n_primals(self):
         return self._function.n_inputs()
 
@@ -571,16 +574,16 @@ class NLPFromFunction(NLP):
         raise NotImplementedError()
 
     def primals_lb(self):
-        return self._primals_lb
+        return np.copy(self._primals_lb)
 
     def primals_ub(self):
-        return self._primals_ub
+        return np.copy(self._primals_ub)
 
     def constraints_lb(self):
-        return self._constraints_lb
+        return np.copy(self._constraints_lb)
 
     def constraints_ub(self):
-        return self._constraints_ub
+        return np.copy(self._constraints_ub)
 
     def init_primals(self):
         return np.zeros(self.n_primals())
@@ -639,9 +642,9 @@ class NLPFromFunction(NLP):
     def evaluate_constraints(self, out=None):
         outputs = self._function.evaluate_outputs()
         if self._objective_included:
-            return outputs[1:]
+            return np.copy(outputs[1:])
         else:
-            return outputs
+            return np.copy(outputs)
 
     def evaluate_jacobian(self, out=None):
         coo = self._function.evaluate_jacobian_outputs()
@@ -653,6 +656,8 @@ class NLPFromFunction(NLP):
 
     def evaluate_hessian_lag(self, out=None):
         hessian = self._function.evaluate_hessian_outputs()
+        if self._hessian_sum is None:
+            self._hessian_sum = CondensedSparseSummation(hessian)
         if self._objective_included:
             obj_factor_array = np.array([self.get_obj_factor()])
         else:
@@ -660,9 +665,10 @@ class NLPFromFunction(NLP):
         # NOTE: assuming here that if objective is not provided by the
         # function, it has no contibution to the Hessian.
         to_multiply = np.concatenate((obj_factor_array, self.get_duals()))
-        return sum(
-            mult*hess for mult, hess in zip(to_multiply, hessian)
-        ).tocoo()
+        sum_ = self._hessian_sum.sum(
+            list(mult*hess for mult, hess in zip(to_multiply, hessian))
+        )
+        return sum_
 
     def report_solver_status(self, status_code, status_message):
         raise NotImplementedError()
