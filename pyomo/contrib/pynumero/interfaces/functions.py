@@ -375,7 +375,12 @@ class FunctionComposition(VectorValuedExternalFunction):
         term1 = [
             term1_flat.getrow(i).reshape((n_in, n_in)) for i in range(n_f2_out)
             ]
-        hessian = [(mat1 + mat2).tocoo() for mat1, mat2 in zip(term1, term2)]
+        term1 = [mat.tocoo() for mat in term1]
+        term2 = [mat.tocoo() for mat in term2]
+        hessian = [
+            CondensedSparseSummation([mat1, mat2]).sum([mat1, mat2])
+            for mat1, mat2 in zip(term1, term2)
+        ]
 
         return hessian
 
