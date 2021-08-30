@@ -489,6 +489,9 @@ class TestComposeFunctionFromNLP(unittest.TestCase):
         pred_hess[1, y_idx_f, u_idx_f] = y/denom
         pred_hess[1, u_idx_f, y_idx_f] = y/denom
 
+        self.assertEqual(hessian[0].nnz, 5)
+        self.assertEqual(hessian[1].nnz, 8)
+
         for pred, act in zip(pred_hess, hessian):
             # Need nonzero atol here because of numerical cancelation in the
             # calculation of the objective Hessian.
@@ -535,7 +538,7 @@ class TestNLPFromFunction(unittest.TestCase):
         np.testing.assert_array_equal(nlp.constraints_lb(), [0.0])
         np.testing.assert_array_equal(nlp.constraints_ub(), [0.0])
 
-    def test_cyipoptnlp(self):
+    def _test_cyipoptnlp(self):
         m = make_model1_yzu()
         nlp = PyomoNLP(m)
         problem = CyIpoptNLP(nlp)
@@ -570,7 +573,140 @@ class TestNLPFromFunction(unittest.TestCase):
         import pdb; pdb.set_trace()
 
 
-class _TestReFixVars(unittest.TestCase):
+class TestNLPFromFunctionFromNLP(unittest.TestCase):
+    def _make_qp_model(self):
+        m = pyo.ConcreteModel()
+        m.x = pyo.Var([1, 2], initialize=1.0)
+        m.con = pyo.Constraint(
+            [1, 2],
+            rule={
+                1: 0.05*m.x[1] + m.x[2] <= 2,
+                2: m.x[1] + 0.2*m.x[2] <= 2,
+            },
+        )
+        m.obj = pyo.Objective(expr=(m.x[1] - 2)**2 + (m.x[2] - 2)**2)
+        m.dual = pyo.Suffix(direction=pyo.Suffix.IMPORT_EXPORT)
+        return m
+
+    def _make_nonlin_model(self):
+        m = pyo.ConcreteModel()
+        m.x = pyo.Var([1, 2], initialize=0.0, bounds=(0, None))
+        m.con = pyo.Constraint(
+            [1, 2],
+            rule={
+                1: m.x[1]**2 + m.x[2] - 2 == 0,
+                2: m.x[1] - m.x[2] >= 0,
+            },
+        )
+        m.obj = pyo.Objective(expr=(m.x[1] - 2)**2 + (m.x[2] - 2)**2)
+        m.dual = pyo.Suffix(direction=pyo.Suffix.IMPORT_EXPORT)
+        return m
+
+    def _make_square_model(self):
+        m = pyo.ConcreteModel()
+        m.x = pyo.Var(initialize=0.0)
+        m.u = pyo.Var(initialize=1.0)
+        m.con = pyo.Constraint(expr=m.x*m.u - 3.0 == 0)
+        m.u_con = pyo.Constraint(expr=m.u - 2.0 == 0)
+        m.dual = pyo.Suffix(direction=pyo.Suffix.IMPORT_EXPORT)
+        m.obj = pyo.Objective(expr=0.0)
+        return m
+
+    def test_qp(self):
+        m = self._make_qp_model()
+        nlp = PyomoNLP(m)
+        fcn = FunctionFromNLP(nlp)
+        fcn_nlp = NLPFromFunction(fcn)
+
+        solver = pyo.SolverFactory("ipopt")
+        res_pyomo = solver.solve(m)
+
+        x0 = np.array([1.0, 1.0])
+        problem = CyIpoptNLP(fcn_nlp)
+        cyipopt = CyIpoptSolver(problem)
+        x, res_nlp = cyipopt.solve(x0=x0)
+
+        x1_idx, x2_idx = nlp.get_primal_indices([m.x[1], m.x[2]])
+        c1_idx, c2_idx = nlp.get_constraint_indices([m.con[1], m.con[2]])
+        primal_pyomo = [None, None]
+        primal_pyomo[x1_idx] = m.x[1].value
+        primal_pyomo[x2_idx] = m.x[2].value
+        dual_pyomo = [None, None]
+        dual_pyomo[c1_idx] = m.dual[m.con[1]]
+        dual_pyomo[c2_idx] = m.dual[m.con[2]]
+
+        dual_nlp = res_nlp['mult_g']
+
+        np.testing.assert_allclose(x, primal_pyomo)
+        # Ipopt Ampl interface and direct interface have
+        # different conventions for multipliers.
+        np.testing.assert_allclose(-dual_nlp, dual_pyomo)
+
+    def test_nonlin(self):
+        m = self._make_nonlin_model()
+        nlp = PyomoNLP(m)
+        fcn = FunctionFromNLP(nlp)
+        fcn_nlp = NLPFromFunction(fcn)
+
+        solver = pyo.SolverFactory("ipopt")
+        res_pyomo = solver.solve(m)
+
+        x0 = np.array([0.0, 0.0])
+        problem = CyIpoptNLP(fcn_nlp)
+        cyipopt = CyIpoptSolver(problem)
+        x, res_nlp = cyipopt.solve(x0=x0)
+
+        x1_idx, x2_idx = nlp.get_primal_indices([m.x[1], m.x[2]])
+        c1_idx, c2_idx = nlp.get_constraint_indices([m.con[1], m.con[2]])
+        primal_pyomo = [None, None]
+        primal_pyomo[x1_idx] = m.x[1].value
+        primal_pyomo[x2_idx] = m.x[2].value
+        dual_pyomo = [None, None]
+        dual_pyomo[c1_idx] = m.dual[m.con[1]]
+        dual_pyomo[c2_idx] = m.dual[m.con[2]]
+
+        dual_nlp = res_nlp['mult_g']
+
+        np.testing.assert_allclose(x, primal_pyomo)
+        # Ipopt Ampl interface and direct interface have
+        # different conventions for multipliers.
+        np.testing.assert_allclose(-dual_nlp, dual_pyomo)
+
+    def test_square(self):
+        m = self._make_square_model()
+        nlp = PyomoNLP(m)
+        fcn = FunctionFromNLP(nlp)
+        fcn_nlp = NLPFromFunction(fcn)
+
+        x_idx, u_idx = nlp.get_primal_indices([m.x, m.u])
+        c1_idx, c2_idx = nlp.get_constraint_indices([m.con, m.u_con])
+
+        solver = pyo.SolverFactory("ipopt")
+        res_pyomo = solver.solve(m)
+
+        primal_pyomo = [None, None]
+        primal_pyomo[x_idx] = m.x.value
+        primal_pyomo[u_idx] = m.u.value
+        dual_pyomo = [None, None]
+        dual_pyomo[c1_idx] = m.dual[m.con]
+        dual_pyomo[c2_idx] = m.dual[m.u_con]
+
+        x0 = np.zeros(nlp.n_primals())
+        x0[x_idx] = 0.0
+        x0[u_idx] = 1.0
+
+        problem = CyIpoptNLP(fcn_nlp)
+        cyipopt = CyIpoptSolver(problem)
+        x, res_nlp = cyipopt.solve(x0=x0)
+        dual_nlp = res_nlp["mult_g"]
+
+        np.testing.assert_allclose(x, primal_pyomo)
+        np.testing.assert_allclose(-dual_nlp, dual_pyomo)
+        # Nondegenerate square problem should have multipliers of zero.
+        np.testing.assert_allclose(-dual_nlp, [0.0, 0.0])
+
+
+class TestReFixVars(unittest.TestCase):
     """
     This tests the functionality of using an NLP to "fix" variables
     by adding equality constraints.
@@ -585,7 +721,7 @@ class _TestReFixVars(unittest.TestCase):
         m.obj = pyo.Objective(expr=m.x[1]**2 + 3.0*m.x[2]**2)
         return m
 
-    def _test_solves(self):
+    def test_solves(self):
         m_fixed = self._make_model()
         m_fixed.u.fix(2.0)
         solver = pyo.SolverFactory("ipopt")
@@ -603,6 +739,8 @@ class _TestReFixVars(unittest.TestCase):
         solver = pyo.SolverFactory("ipopt")
         solver.solve(m, tee=True)
         m.dual.pprint()
+        m.x.pprint()
+        m.u.pprint()
 
     def test_solve_constrained_model_as_nlp(self):
         m = self._make_model()
@@ -751,8 +889,5 @@ class _TestReFixVars(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    #unittest.main()
-    _TestReFixVars().test_solve_constrained_model()
-    _TestReFixVars().test_solve_fix_constraints()
-    #_TestReFixVars().test_solve_constrained_model_as_nlp()
-    #_TestReFixVars().test_solve_fixed_nlp()
+    unittest.main()
+    #TestNLPFromFunction().test_cyipoptnlp()
