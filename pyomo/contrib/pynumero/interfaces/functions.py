@@ -635,24 +635,44 @@ class NLPFromFunction(NLP):
             coo = self._function.evaluate_jacobian_outputs()
             # TODO: cache these matrices
             csr = coo.tocsr()
-            return csr[0, :].toarray()[0]
+            grad = csr[0, :].toarray()[0]
         else:
-            return np.zeros(self.n_primals())
+            grad = np.zeros(self.n_primals())
+
+        if out is not None:
+            np.copyto(out, grad)
+            return out
+        else:
+            return grad
 
     def evaluate_constraints(self, out=None):
         outputs = self._function.evaluate_outputs()
         if self._objective_included:
-            return np.copy(outputs[1:])
+            resid = outputs[1:]
         else:
-            return np.copy(outputs)
+            resid = outputs
+
+        if out is not None:
+            np.copyto(out, resid)
+            return out
+        else:
+            return resid
 
     def evaluate_jacobian(self, out=None):
         coo = self._function.evaluate_jacobian_outputs()
         if self._objective_included:
             csr = coo.tocsr()
-            return csr[1:, :].tocoo()
+            jac = csr[1:, :].tocoo()
         else:
-            return coo
+            jac = coo
+
+        if out is not None:
+            assert np.array_equal(jac.row, out.row)
+            assert np.array_equal(jac.col, out.col)
+            np.copyto(out.data, jac.data)
+            return out
+        else:
+            return jac
 
     def evaluate_hessian_lag(self, out=None):
         hessian = self._function.evaluate_hessian_outputs()
@@ -668,7 +688,14 @@ class NLPFromFunction(NLP):
         sum_ = self._hessian_sum.sum(
             list(mult*hess for mult, hess in zip(to_multiply, hessian))
         )
-        return sum_
+
+        if out is not None:
+            assert np.array_equal(sum_.row, out.row)
+            assert np.array_equal(sum_.col, out.col)
+            np.copyto(out.data, sum_.data)
+            return out
+        else:
+            return sum_
 
     def report_solver_status(self, status_code, status_message):
         raise NotImplementedError()
