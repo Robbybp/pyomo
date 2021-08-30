@@ -599,8 +599,35 @@ class _TestReFixVars(unittest.TestCase):
     def test_solve_constrained_model(self):
         m = self._make_model()
         m.fix_con = pyo.Constraint(expr=m.u - 2.0 == 0)
+        m.dual = pyo.Suffix(direction=pyo.Suffix.IMPORT_EXPORT)
         solver = pyo.SolverFactory("ipopt")
         solver.solve(m, tee=True)
+        m.dual.pprint()
+
+    def test_solve_constrained_model_as_nlp(self):
+        m = self._make_model()
+        m.fix_con = pyo.Constraint(expr=m.u - 2.0 == 0)
+        nlp = PyomoNLP(m)
+        nlp_fcn = FunctionFromNLP(nlp)
+        fcn_nlp = NLPFromFunction(nlp_fcn)
+
+        x0 = nlp.get_primals()
+        fcn_nlp.set_primals(x0)
+
+        problem = CyIpoptNLP(fcn_nlp)
+        cyipopt = CyIpoptSolver(problem)
+        x, results = cyipopt.solve(x0=x0, tee=True)
+        import pdb; pdb.set_trace()
+
+    def test_solve_fix_constraints(self):
+        n_primals = 3
+        value_map = {0: 1, 1: 2, 2: 3}
+        fixing_constraints = FixedVarNLP(n_primals, value_map)
+
+        problem = CyIpoptNLP(fixing_constraints)
+        cyipopt = CyIpoptSolver(problem)
+        x, results = cyipopt.solve(tee=True)
+        import pdb; pdb.set_trace()
 
     def test_solve_fixed_nlp(self):
         m = self._make_model()
@@ -619,7 +646,7 @@ class _TestReFixVars(unittest.TestCase):
         combined_fcn = FunctionCombination(nlp_fcn, fixing_fcn)
         combined_nlp = NLPFromFunction(combined_fcn)
 
-        #x0 = nlp.get_primals()
+        x0 = nlp.get_primals()
         x0 = np.array([1.0, 1.0, 2.0])
         combined_nlp.set_primals(x0)
 
@@ -726,4 +753,6 @@ class _TestReFixVars(unittest.TestCase):
 if __name__ == '__main__':
     #unittest.main()
     _TestReFixVars().test_solve_constrained_model()
-    _TestReFixVars().test_solve_fixed_nlp()
+    _TestReFixVars().test_solve_fix_constraints()
+    #_TestReFixVars().test_solve_constrained_model_as_nlp()
+    #_TestReFixVars().test_solve_fixed_nlp()
