@@ -81,5 +81,3 @@ class TestCondensedSparseSummation(unittest.TestCase):
 
 if __name__ == '__main__':
     TestCondensedSparseSummation().test_condensed_sparse_summation()
-    
-        
