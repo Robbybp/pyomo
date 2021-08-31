@@ -543,12 +543,10 @@ class TestNLPFromFunction(unittest.TestCase):
         np.testing.assert_array_equal(nlp.constraints_lb(), [0.0])
         np.testing.assert_array_equal(nlp.constraints_ub(), [0.0])
 
-    def _test_cyipoptnlp(self):
-        m = make_model1_yzu()
-        nlp = PyomoNLP(m)
-        problem = CyIpoptNLP(nlp)
-        cyipopt = CyIpoptSolver(problem)
-        cyipopt.solve(tee=True)
+    def test_cyipoptnlp(self):
+        m_yz = make_model1_yzu()
+        solver = pyo.SolverFactory("ipopt")
+        solver.solve(m_yz, tee=True)
 
         m = make_model1_xu()
         pyomo_nlp = PyomoNLP(m)
@@ -574,8 +572,11 @@ class TestNLPFromFunction(unittest.TestCase):
         nlp = NLPFromFunction(fcn_comp)
         problem = CyIpoptNLP(nlp)
         cyipopt = CyIpoptSolver(problem)
-        cyipopt.solve(x0=x0, tee=True)
-        import pdb; pdb.set_trace()
+        x, res = cyipopt.solve(x0=x0, tee=True)
+
+        self.assertAlmostEqual(x[x_idx_f], m_yz.y.value)
+        self.assertAlmostEqual(x[x_idx_f + 1], m_yz.z.value)
+        self.assertAlmostEqual(x[u_idx_f], m_yz.u.value)
 
 
 class TestNLPFromFunctionFromNLP(unittest.TestCase):
