@@ -2,7 +2,12 @@ import numpy as np
 import scipy.sparse as sps
 
 from pyomo.contrib.pynumero.interfaces.nlp import NLP
-from pyomo.contrib.pynumero.interfaces.utils import CondensedSparseSummation
+from pyomo.contrib.pynumero.interfaces.utils import (
+    CondensedSparseSummation,
+    multiply_sparsity_structure,
+    augment_sparsity_structure,
+    safe_coo_multiply,
+)
 
 
 class VectorValuedExternalFunction(object):
@@ -286,6 +291,8 @@ class FunctionComposition(VectorValuedExternalFunction):
         self._function1 = function1
         self._function2 = function2
 
+        self._jacobian_sparsity = None
+
     def get_input_source(self, idx):
         return self._function2.get_input_source(idx)
 
@@ -318,7 +325,10 @@ class FunctionComposition(VectorValuedExternalFunction):
         """
         jf1 = self._function1.evaluate_jacobian_outputs()
         jf2 = self._function2.evaluate_jacobian_outputs()
+        if self._jacobian_sparsity is None:
+            self._jacobian_sparsity = multiply_sparsity_structure(jf1, jf2)
         jac = jf1.dot(jf2).tocoo()
+        jac = augment_sparsity_structure(jac, *self._jacobian_sparsity)
         return jac
 
     def evaluate_hessian_outputs(self):
@@ -353,7 +363,12 @@ class FunctionComposition(VectorValuedExternalFunction):
 
         # Multiply jf2 by each matrix defined by a coordinate of the
         # first rank of hf1
-        term2 = [jf2.transpose().dot(H).dot(jf2) for H in hf1]
+        term2 = [
+            safe_coo_multiply(
+                safe_coo_multiply(jf2.transpose(), H), jf2
+            )
+            for H in hf1
+        ]
 
         # Now need to multiply jf1 by each of nx^2 vectors
 
@@ -367,7 +382,7 @@ class FunctionComposition(VectorValuedExternalFunction):
         hf2_flat = sps.vstack(hf2_flat_rows)
 
         # Multiply flattened Hessian-2 by Jacobian-1
-        term1_flat = jf1.dot(hf2_flat).tocsr()
+        term1_flat = safe_coo_multiply(jf1, hf2_flat.tocoo()).tocsr()
         # Very important to make sure this matrix is in CSR format for
         # fast getrow below.
 
