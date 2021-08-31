@@ -726,43 +726,7 @@ class TestReFixVars(unittest.TestCase):
         m.obj = pyo.Objective(expr=m.x[1]**2 + 3.0*m.x[2]**2)
         return m
 
-    def _test_solves(self):
-        m_fixed = self._make_model()
-        m_fixed.u.fix(2.0)
-        solver = pyo.SolverFactory("ipopt")
-        solver.solve(m_fixed, tee=True)
-
-        m = self._make_model()
-        nlp = PyomoNLP(m)
-        # Get index of variable(s) we would like to fix
-        #
-
-    def _test_solve_constrained_model(self):
-        m = self._make_model()
-        m.fix_con = pyo.Constraint(expr=m.u - 2.0 == 0)
-        m.dual = pyo.Suffix(direction=pyo.Suffix.IMPORT_EXPORT)
-        solver = pyo.SolverFactory("ipopt")
-        solver.solve(m, tee=True)
-        m.dual.pprint()
-        m.x.pprint()
-        m.u.pprint()
-
-    def _test_solve_constrained_model_as_nlp(self):
-        m = self._make_model()
-        m.fix_con = pyo.Constraint(expr=m.u - 2.0 == 0)
-        nlp = PyomoNLP(m)
-        nlp_fcn = FunctionFromNLP(nlp)
-        fcn_nlp = NLPFromFunction(nlp_fcn)
-
-        x0 = nlp.get_primals()
-        fcn_nlp.set_primals(x0)
-
-        problem = CyIpoptNLP(fcn_nlp)
-        cyipopt = CyIpoptSolver(problem)
-        x, results = cyipopt.solve(x0=x0, tee=True)
-        import pdb; pdb.set_trace()
-
-    def _test_solve_fix_constraints(self):
+    def test_solve_fix_constraints(self):
         n_primals = 3
         value_map = {0: 1, 1: 2, 2: 3}
         fixing_constraints = FixedVarNLP(n_primals, value_map)
@@ -770,9 +734,14 @@ class TestReFixVars(unittest.TestCase):
         problem = CyIpoptNLP(fixing_constraints)
         cyipopt = CyIpoptSolver(problem)
         x, results = cyipopt.solve(tee=True)
-        import pdb; pdb.set_trace()
+        np.testing.assert_allclose(x, [1, 2, 3])
 
-    def _test_solve_fixed_nlp(self):
+    def test_solve_fixed_nlp(self):
+        m_fixed = self._make_model()
+        m_fixed.u.fix(2.0)
+        solver = pyo.SolverFactory("ipopt")
+        solver.solve(m_fixed, tee=True)
+
         m = self._make_model()
         nlp = PyomoNLP(m)
         pyomo_vars = [m.x[1], m.x[2], m.u]
@@ -790,13 +759,61 @@ class TestReFixVars(unittest.TestCase):
         combined_nlp = NLPFromFunction(combined_fcn)
 
         x0 = nlp.get_primals()
-        x0 = np.array([1.0, 1.0, 2.0])
+        x0 = np.array([5.0, 5.0, 1.0])
         combined_nlp.set_primals(x0)
 
         problem = CyIpoptNLP(combined_nlp)
         cyipopt = CyIpoptSolver(problem)
-        cyipopt.solve(x0=x0, tee=True)
-        import pdb; pdb.set_trace()
+        x, res = cyipopt.solve(x0=x0, tee=True)
+
+        self.assertAlmostEqual(x[x1_idx], m_fixed.x[1].value)
+        self.assertAlmostEqual(x[x2_idx], m_fixed.x[2].value)
+        self.assertAlmostEqual(x[u_idx], m_fixed.u.value)
+
+    def test_refix_and_solve(self):
+        m_fixed = self._make_model()
+        m_fixed.u.fix(2.0)
+        solver = pyo.SolverFactory("ipopt")
+        solver.solve(m_fixed, tee=True)
+
+        m = self._make_model()
+        nlp = PyomoNLP(m)
+        pyomo_vars = [m.x[1], m.x[2], m.u]
+        x1_idx, x2_idx, u_idx = nlp.get_primal_indices(pyomo_vars)
+        n_primals = nlp.n_primals()
+        value_map = {u_idx: 2.0}
+        fixing_constraints = FixedVarNLP(n_primals, value_map)
+
+        nlp_fcn = FunctionFromNLP(nlp)
+        fixing_fcn = FunctionFromNLP(
+            fixing_constraints, include_objective=False
+        )
+
+        combined_fcn = FunctionCombination(nlp_fcn, fixing_fcn)
+        combined_nlp = NLPFromFunction(combined_fcn)
+
+        x0 = nlp.get_primals()
+        x0 = np.array([5.0, 5.0, 1.0])
+        combined_nlp.set_primals(x0)
+
+        problem = CyIpoptNLP(combined_nlp)
+        cyipopt = CyIpoptSolver(problem)
+        x, res = cyipopt.solve(x0=x0, tee=True)
+
+        self.assertAlmostEqual(x[x1_idx], m_fixed.x[1].value)
+        self.assertAlmostEqual(x[x2_idx], m_fixed.x[2].value)
+        self.assertAlmostEqual(x[u_idx], m_fixed.u.value)
+
+        m_fixed.u.fix(3.0)
+        solver.solve(m_fixed, tee=True)
+
+        value_map = {u_idx: 3.0}
+        fixing_constraints.update_fixed_values(value_map)
+        x0 = x
+        x, res = cyipopt.solve(x0=x0, tee=True)
+        self.assertAlmostEqual(x[x1_idx], m_fixed.x[1].value)
+        self.assertAlmostEqual(x[x2_idx], m_fixed.x[2].value)
+        self.assertAlmostEqual(x[u_idx], m_fixed.u.value)
 
     def test_fixed_nlp(self):
         m = self._make_model()
@@ -894,8 +911,4 @@ class TestReFixVars(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    #unittest.main()
-    #TestReFixVars().test_fixed_nlp()
-    #TestReFixVars().test_solve_fixed_nlp()
-    #TestNLPFromFunction()._test_cyipoptnlp()
-    TestComposeFunctionFromNLP().test_hessian()
+    unittest.main()
