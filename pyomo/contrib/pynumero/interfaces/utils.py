@@ -173,3 +173,58 @@ class CondensedSparseSummation(object):
             data += mp.dot(list_of_matrices[i].data)
         ret = coo_matrix((data, (np.copy(self._row), np.copy(self._col))), shape=self._shape)
         return ret
+
+
+def multiply_sparsity_structure(coo1, coo2):
+    """
+    Returns the row and col arrays for the matrix obtained by mutiplying
+    coo1 and coo2 if all structural entries are preserved.
+
+    """
+    M1, N1 = coo1.shape
+    M2, N2 = coo2.shape
+    assert N1 == M2
+
+    ones1 = np.ones(coo1.nnz)
+    ones2 = np.ones(coo2.nnz)
+
+    left = coo_matrix((ones1, (coo1.row, coo1.col)), shape=(M1, N1))
+    right = coo_matrix((ones2, (coo2.row, coo2.col)), shape=(M2, N2))
+    # Guaranteed to not have any explicit zero cancellation
+    out = left.dot(right).tocoo()
+    return out.row, out.col
+
+
+def augment_sparsity_structure(coo, row, col):
+    """
+    Returns an equivalent coo representation with explicit zeros added
+    for any entry defined by row and col that is not present in the
+    input coo matrix.
+
+    """
+    existing_rc = set(zip(coo.row, coo.col))
+    new_row = []
+    new_col = []
+    for i, j in zip(row, col):
+        if (i, j) not in existing_rc:
+            new_row.append(i)
+            new_col.append(j)
+    data = np.zeros(len(new_row))
+    new_row = np.concatenate((coo.row, new_row))
+    new_col = np.concatenate((coo.col, new_col))
+    data = np.concatenate((coo.data, data))
+    new_coo = coo_matrix((data, (new_row, new_col)), shape=coo.shape)
+    return new_coo
+
+
+def safe_coo_multiply(coo1, coo2):
+    """
+    Returns the matrix-matrix product of two COO matrices in which
+    the product has entries for all possible nonzeros that could
+    occur when multiplying matrices with the same sparsity structures.
+
+    """
+    product = coo1.dot(coo2).tocoo()
+    row, col = multiply_sparsity_structure(coo1, coo2)
+    product = augment_sparsity_structure(product, row, col)
+    return product
