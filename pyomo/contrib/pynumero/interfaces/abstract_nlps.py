@@ -73,7 +73,7 @@ class FixedVarNLP(NLP):
         return np.zeros(self.n_primals())
 
     def init_duals(self):
-        return np.zeros(self.n_primals())
+        return np.zeros(self.n_constraints())
 
     def create_new_vector(self, vector_type):
         raise NotImplementedError()
