@@ -606,7 +606,7 @@ class NLPFromFunction(NLP):
         return np.copy(self._constraints_ub)
 
     def init_primals(self):
-        return np.zeros(self.n_primals())
+        return np.ones(self.n_primals())
 
     def init_duals(self):
         return np.zeros(self.n_constraints())
