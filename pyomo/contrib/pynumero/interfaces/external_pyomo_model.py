@@ -23,6 +23,18 @@ from pyomo.contrib.pynumero.interfaces.pyomo_nlp import PyomoNLP
 from pyomo.contrib.pynumero.interfaces.external_grey_box import (
         ExternalGreyBoxModel,
         )
+from pyomo.contrib.pynumero.interfaces.functions import (
+        NLPFromFunction,
+        FunctionFromNLP,
+        FunctionCombination,
+        )
+from pyomo.contrib.pynumero.interfaces.abstract_nlps import (
+        FixedVarNLP,
+        )
+from pyomo.contrib.pynumero.algorithms.solvers.cyipopt_solver import (
+        CyIpoptNLP,
+        CyIpoptSolver,
+        )
 import numpy as np
 import scipy.sparse as sps
 
@@ -151,6 +163,31 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         self._block._obj = Objective(expr=0.0)
         self._nlp = PyomoNLP(self._block)
 
+        self._external_block = create_subsystem_block(
+            external_cons, external_vars
+        )
+        self._external_block._obj = Objective(expr=0.0)
+        self._external_nlp = PyomoNLP(self._external_block)
+
+        to_fix = list(self._external_block.input_vars.values())
+        self._external_inputs = ComponentSet(to_fix)
+        value_map = dict(zip(
+            self._external_nlp.get_primal_indices(to_fix),
+            [v.value for v in to_fix],
+        ))
+        self._fixing_constraints = FixedVarNLP(
+            self._external_nlp.n_primals(),
+            value_map,
+        )
+        nlp_fcn = FunctionFromNLP(self._external_nlp)
+        fixing_fcn = FunctionFromNLP(
+            self._fixing_constraints, include_objective=False
+        )
+        combined_fcn = FunctionCombination(nlp_fcn, fixing_fcn)
+        combined_nlp = NLPFromFunction(combined_fcn)
+        problem = CyIpoptNLP(combined_nlp)
+        self._external_solver = CyIpoptSolver(problem)
+
         assert len(external_vars) == len(external_cons)
 
         self.input_vars = input_vars
@@ -181,14 +218,32 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         for var, val in zip(input_vars, input_values):
             var.set_value(val)
 
-        _temp = create_subsystem_block(external_cons, variables=external_vars)
-        possible_input_vars = ComponentSet(input_vars)
-        #for var in _temp.input_vars.values():
-        #    # TODO: Is this check necessary?
-        #    assert var in possible_input_vars
+        # Filter out variables from "inputs" that aren't in the
+        # external block
+        to_fix = [(var, val) for var, val in zip(input_vars, input_values)
+                if var in self._external_inputs]
+        vars_to_fix = [var for var, _ in to_fix]
+        vals_to_fix = [val for _, val in to_fix]
+        input_coords = self._external_nlp.get_primal_indices(vars_to_fix)
+        value_map = dict(zip(input_coords, vals_to_fix))
+        self._fixing_constraints.update_fixed_values(value_map)
+        # TODO: These primal values are not properly initialized
+        x0 = self._external_nlp.get_primals()
+        x, res = self._external_solver.solve(x0=x0)
+        pyomo_vars = self._external_nlp.get_pyomo_variables()
 
-        with TemporarySubsystemManager(to_fix=list(_temp.input_vars.values())):
-            solver.solve(_temp)
+        # Update Pyomo values after solve.
+        for var, val in zip(pyomo_vars, x):
+            var.set_value(val)
+
+        #_temp = create_subsystem_block(external_cons, variables=external_vars)
+        #possible_input_vars = ComponentSet(input_vars)
+        ##for var in _temp.input_vars.values():
+        ##    # TODO: Is this check necessary?
+        ##    assert var in possible_input_vars
+
+        #with TemporarySubsystemManager(to_fix=list(_temp.input_vars.values())):
+        #    solver.solve(_temp)
 
         # Should we create the NLP from the original block or the temp block?
         # Need to create it from the original block because temp block won't
