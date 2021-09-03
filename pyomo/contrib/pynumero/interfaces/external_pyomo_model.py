@@ -9,7 +9,7 @@
 #  ___________________________________________________________________________
 
 import itertools
-from pyomo.environ import SolverFactory
+from pyomo.environ import SolverFactory, TerminationCondition
 from pyomo.core.base.var import Var
 from pyomo.core.base.constraint import Constraint
 from pyomo.core.base.objective import Objective
@@ -34,9 +34,14 @@ from pyomo.contrib.pynumero.interfaces.abstract_nlps import (
 from pyomo.contrib.pynumero.algorithms.solvers.cyipopt_solver import (
         CyIpoptNLP,
         CyIpoptSolver,
+        cyipopt_available,
         )
 import numpy as np
 import scipy.sparse as sps
+
+
+class ImplicitFunctionError(RuntimeError):
+    pass
 
 
 def _dense_to_full_sparse(matrix):
@@ -150,10 +155,6 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             external_cons,
             solver=None,
             ):
-        if solver is None:
-            solver = SolverFactory("ipopt")
-        self._solver = solver
-
         # We only need this block to construct the NLP, which wouldn't
         # be necessary if we could compute Hessians of Pyomo constraints.
         self._block = create_subsystem_block(
@@ -167,26 +168,34 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             external_cons, external_vars
         )
         self._external_block._obj = Objective(expr=0.0)
-        self._external_nlp = PyomoNLP(self._external_block)
 
-        to_fix = list(self._external_block.input_vars.values())
-        self._external_inputs = ComponentSet(to_fix)
-        value_map = dict(zip(
-            self._external_nlp.get_primal_indices(to_fix),
-            [v.value for v in to_fix],
-        ))
-        self._fixing_constraints = FixedVarNLP(
-            self._external_nlp.n_primals(),
-            value_map,
-        )
-        nlp_fcn = FunctionFromNLP(self._external_nlp)
-        fixing_fcn = FunctionFromNLP(
-            self._fixing_constraints, include_objective=False
-        )
-        combined_fcn = FunctionCombination(nlp_fcn, fixing_fcn)
-        combined_nlp = NLPFromFunction(combined_fcn)
-        problem = CyIpoptNLP(combined_nlp)
-        self._external_solver = CyIpoptSolver(problem)
+        self._use_cyipopt = False
+        if cyipopt_available and solver is None:
+            self._use_cyipopt = True
+            self._external_nlp = PyomoNLP(self._external_block)
+
+            to_fix = list(self._external_block.input_vars.values())
+            self._external_inputs = ComponentSet(to_fix)
+            value_map = dict(zip(
+                self._external_nlp.get_primal_indices(to_fix),
+                [v.value for v in to_fix],
+            ))
+            self._fixing_constraints = FixedVarNLP(
+                self._external_nlp.n_primals(),
+                value_map,
+            )
+            nlp_fcn = FunctionFromNLP(self._external_nlp)
+            fixing_fcn = FunctionFromNLP(
+                self._fixing_constraints, include_objective=False
+            )
+            combined_fcn = FunctionCombination(nlp_fcn, fixing_fcn)
+            combined_nlp = NLPFromFunction(combined_fcn)
+            problem = CyIpoptNLP(combined_nlp)
+            self._solver = CyIpoptSolver(problem)
+        elif solver is None:
+            self._solver = SolverFactory("ipopt")
+        else:
+            self._solver = solver
 
         assert len(external_vars) == len(external_cons)
 
@@ -218,32 +227,53 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         for var, val in zip(input_vars, input_values):
             var.set_value(val)
 
-        # Filter out variables from "inputs" that aren't in the
-        # external block
-        to_fix = [(var, val) for var, val in zip(input_vars, input_values)
-                if var in self._external_inputs]
-        vars_to_fix = [var for var, _ in to_fix]
-        vals_to_fix = [val for _, val in to_fix]
-        input_coords = self._external_nlp.get_primal_indices(vars_to_fix)
-        value_map = dict(zip(input_coords, vals_to_fix))
-        self._fixing_constraints.update_fixed_values(value_map)
-        # TODO: These primal values are not properly initialized
-        x0 = self._external_nlp.get_primals()
-        x, res = self._external_solver.solve(x0=x0)
-        pyomo_vars = self._external_nlp.get_pyomo_variables()
+        if self._use_cyipopt:
+            # No solver for the implicit function system was provided.
+            # We default to solving with CyIpopt as we have a direct
+            # interface that lets us avoid writing an nl file each
+            # iteration.
+            external_primals = self._external_nlp.get_primals()
+            # Filter out variables from "inputs" that aren't in the
+            # external block
+            to_fix = [(var, val) for var, val in zip(input_vars, input_values)
+                    if var in self._external_inputs]
+            vars_to_fix = [var for var, _ in to_fix]
+            vals_to_fix = [val for _, val in to_fix]
+            input_coords = self._external_nlp.get_primal_indices(vars_to_fix)
+            value_map = dict(zip(input_coords, vals_to_fix))
+            self._fixing_constraints.update_fixed_values(value_map)
+            external_primals[input_coords] = vals_to_fix
+            self._external_nlp.set_primals(external_primals)
+            # TODO: These primal values are not properly initialized
+            x0 = self._external_nlp.get_primals()
+            x, res = solver.solve(x0=x0)
+            if res["status"] != 0:
+                raise ImplicitFunctionError(
+                    "Failed to properly converge implicit function "
+                    "subproblem with solver of type %s.\n"
+                    "Message from the solver is: %s"
+                    % (type(solver), res["status_msg"])
+                )
+            pyomo_vars = self._external_nlp.get_pyomo_variables()
 
-        # Update Pyomo values after solve.
-        for var, val in zip(pyomo_vars, x):
-            var.set_value(val)
+            # Update Pyomo values after solve.
+            for var, val in zip(pyomo_vars, x):
+                var.set_value(val)
 
-        #_temp = create_subsystem_block(external_cons, variables=external_vars)
-        #possible_input_vars = ComponentSet(input_vars)
-        ##for var in _temp.input_vars.values():
-        ##    # TODO: Is this check necessary?
-        ##    assert var in possible_input_vars
-
-        #with TemporarySubsystemManager(to_fix=list(_temp.input_vars.values())):
-        #    solver.solve(_temp)
+        else:
+            block = self._external_block
+            with TemporarySubsystemManager(
+                    to_fix=list(block.input_vars.values())
+                    ):
+                res = solver.solve(block)
+            if (res.solver.termination_condition is not
+                    TerminationCondition.optimal):
+                raise ImplicitFunctionError(
+                    "Failed to properly converge implicit function "
+                    "subproblem with solver of type %s.\n"
+                    "Message from the solver is: %s"
+                    % (type(solver), res.solver.message)
+                )
 
         # Should we create the NLP from the original block or the temp block?
         # Need to create it from the original block because temp block won't
