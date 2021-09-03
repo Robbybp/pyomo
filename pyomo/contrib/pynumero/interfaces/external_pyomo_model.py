@@ -261,6 +261,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                 var.set_value(val)
 
         else:
+            # CyIpopt is unavailable or a solver was provided, so we
+            # solve the Pyomo model of the implicit function system.
             block = self._external_block
             with TemporarySubsystemManager(
                     to_fix=list(block.input_vars.values())
