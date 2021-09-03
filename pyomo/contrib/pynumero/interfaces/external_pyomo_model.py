@@ -174,8 +174,25 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             self._use_cyipopt = True
             self._external_nlp = PyomoNLP(self._external_block)
 
+            # All the variables we need to fix in the external system.
+            # input_vars may be only a subset of these, and these may
+            # include only a subset of input_vars
             to_fix = list(self._external_block.input_vars.values())
-            self._external_inputs = ComponentSet(to_fix)
+            to_fix_set = ComponentSet(to_fix)
+
+            # Inputs that participate in the external system
+            self._inputs_in_external = [
+                i for i, var in enumerate(input_vars) if var in to_fix_set
+            ]
+            inputs_to_fix = [var for var in input_vars if var in to_fix_set]
+
+            # Coordinates in external system belonging to inputs
+            input_coords_external = self._external_nlp.get_primal_indices(
+                inputs_to_fix
+            )
+            self._input_coords_external = input_coords_external
+
+            # Set values of variables to "fix" in the external system
             value_map = dict(zip(
                 self._external_nlp.get_primal_indices(to_fix),
                 [v.value for v in to_fix],
@@ -184,6 +201,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                 self._external_nlp.n_primals(),
                 value_map,
             )
+            # Combine external NLP with "fixing constraints" NLP
             nlp_fcn = FunctionFromNLP(self._external_nlp)
             fixing_fcn = FunctionFromNLP(
                 self._fixing_constraints, include_objective=False
@@ -232,20 +250,24 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             # We default to solving with CyIpopt as we have a direct
             # interface that lets us avoid writing an nl file each
             # iteration.
+
+            # Get current primal vector from external nlp
             external_primals = self._external_nlp.get_primals()
-            # Filter out variables from "inputs" that aren't in the
-            # external block
-            to_fix = [(var, val) for var, val in zip(input_vars, input_values)
-                    if var in self._external_inputs]
-            vars_to_fix = [var for var, _ in to_fix]
-            vals_to_fix = [val for _, val in to_fix]
-            input_coords = self._external_nlp.get_primal_indices(vars_to_fix)
-            value_map = dict(zip(input_coords, vals_to_fix))
+
+            # Compress provided input values to keep those in the external
+            # system.
+            input_coords = self._input_coords_external
+            input_values = np.array(input_values)[self._inputs_in_external]
+            # Update fixed values of input variables in the external system
+            value_map = dict(zip(input_coords, input_values))
             self._fixing_constraints.update_fixed_values(value_map)
-            external_primals[input_coords] = vals_to_fix
+
+            # Update current values of fixed variables
+            external_primals[input_coords] = input_values
             self._external_nlp.set_primals(external_primals)
-            # TODO: These primal values are not properly initialized
-            x0 = self._external_nlp.get_primals()
+
+            # Set initial guess and solve with CyIpopt
+            x0 = external_primals
             x, res = solver.solve(x0=x0)
             if res["status"] != 0:
                 raise ImplicitFunctionError(
@@ -254,9 +276,9 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                     "Message from the solver is: %s"
                     % (type(solver), res["status_msg"])
                 )
-            pyomo_vars = self._external_nlp.get_pyomo_variables()
 
             # Update Pyomo values after solve.
+            pyomo_vars = self._external_nlp.get_pyomo_variables()
             for var, val in zip(pyomo_vars, x):
                 var.set_value(val)
 
