@@ -13,8 +13,12 @@ from pyomo.environ import SolverFactory, TerminationCondition
 from pyomo.core.base.var import Var
 from pyomo.core.base.constraint import Constraint
 from pyomo.core.base.objective import Objective
-from pyomo.core.expr.visitor import identify_variables
-from pyomo.common.collections import ComponentSet
+from pyomo.core.base.reference import Reference
+from pyomo.core.expr.visitor import (
+        identify_variables,
+        identify_mutable_parameters,
+        )
+from pyomo.common.collections import ComponentSet, ComponentMap
 from pyomo.util.subsystems import (
         create_subsystem_block,
         TemporarySubsystemManager,
@@ -23,6 +27,7 @@ from pyomo.contrib.pynumero.interfaces.pyomo_nlp import PyomoNLP
 from pyomo.contrib.pynumero.interfaces.external_grey_box import (
         ExternalGreyBoxModel,
         )
+#<<<<<<< HEAD
 from pyomo.contrib.pynumero.interfaces.functions import (
         NLPFromFunction,
         FunctionFromNLP,
@@ -36,6 +41,9 @@ from pyomo.contrib.pynumero.algorithms.solvers.cyipopt_solver import (
         CyIpoptSolver,
         cyipopt_available,
         )
+#=======
+#from pyomo.contrib import appsi
+#>>>>>>> imp-fcn-persistent
 import numpy as np
 import scipy.sparse as sps
 
@@ -240,6 +248,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         solver = self._solver
         external_cons = self.external_cons
         external_vars = self.external_vars
+        external_block = self._external_block
         input_vars = self.input_vars
 
         for var, val in zip(input_vars, input_values):
@@ -257,13 +266,13 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             # Compress provided input values to keep those in the external
             # system.
             input_coords = self._input_coords_external
-            input_values = np.array(input_values)[self._inputs_in_external]
+            input_value_array = np.array(input_values)[self._inputs_in_external]
             # Update fixed values of input variables in the external system
-            value_map = dict(zip(input_coords, input_values))
+            value_map = dict(zip(input_coords, input_value_array))
             self._fixing_constraints.update_fixed_values(value_map)
 
             # Update current values of fixed variables
-            external_primals[input_coords] = input_values
+            external_primals[input_coords] = input_value_array
             self._external_nlp.set_primals(external_primals)
 
             # Set initial guess and solve with CyIpopt
@@ -299,10 +308,22 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                     % (type(solver), res.solver.message)
                 )
 
+        input_value_map = ComponentMap(zip(input_vars, input_values))
+        external_value_map = ComponentMap(
+            ((var, var.value) for var in external_vars)
+        )
+
         # Should we create the NLP from the original block or the temp block?
         # Need to create it from the original block because temp block won't
         # have residual constraints, whose derivatives are necessary.
-        self._nlp = PyomoNLP(self._block)
+        primal_vars = self._nlp.get_pyomo_variables()
+        primals = self._nlp.get_primals()
+        for i, var in enumerate(primal_vars):
+            if var in input_value_map:
+                primals[i] = input_value_map[var]
+            elif var in external_value_map:
+                primals[i] = external_value_map[var]
+        self._nlp.set_primals(primals)
 
     def set_equality_constraint_multipliers(self, eq_con_multipliers):
         for i, val in enumerate(eq_con_multipliers):
