@@ -359,7 +359,7 @@ class FunctionComposition(VectorValuedExternalFunction):
         hf2 = self._function2.evaluate_hessian_outputs()
 
         n_in = self._function2.n_inputs()
-        n_f2_out = self._function2.n_outputs()
+        n_f1_out = self._function1.n_outputs()
 
         # Multiply jf2 by each matrix defined by a coordinate of the
         # first rank of hf1
@@ -388,7 +388,7 @@ class FunctionComposition(VectorValuedExternalFunction):
 
         # Each row of the matrix becomes a matrix of the tensor
         term1 = [
-            term1_flat.getrow(i).reshape((n_in, n_in)) for i in range(n_f2_out)
+            term1_flat.getrow(i).reshape((n_in, n_in)) for i in range(n_f1_out)
             ]
         term1 = [mat.tocoo() for mat in term1]
         term2 = [mat.tocoo() for mat in term2]
