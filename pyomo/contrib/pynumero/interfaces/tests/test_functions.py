@@ -737,6 +737,23 @@ class TestEmbedFunctionWithExistingInputs(unittest.TestCase):
             self.assertIn((i, j), nz_set)
         np.testing.assert_allclose(pred_hess.toarray(), hess.toarray())
 
+    def test_solve(self):
+        m, pyomo_nlp, nlp = self._create_model_and_nlp()
+        m_yzu = make_model2_yzu()
+
+        x0 = np.array([1.5, 1.5, 2.5])
+        nlp.set_primals(x0)
+
+        problem = CyIpoptNLP(nlp)
+        cyipopt = CyIpoptSolver(problem)
+        x, res = cyipopt.solve(x0=x0)
+
+        ipopt = pyo.SolverFactory("ipopt")
+        ipopt.solve(m_yzu)
+        pred_values = [m_yzu.y.value, m_yzu.z.value, m_yzu.u.value]
+
+        np.testing.assert_allclose(pred_values, x)
+
 
 class TestNLPFromFunctionFromNLP(unittest.TestCase):
     def _make_qp_model(self):
