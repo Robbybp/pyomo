@@ -546,6 +546,7 @@ class TestNLPFromFunction(unittest.TestCase):
         np.testing.assert_array_equal(nlp.constraints_lb(), [0.0])
         np.testing.assert_array_equal(nlp.constraints_ub(), [0.0])
 
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
     def test_cyipoptnlp(self):
         m_yz = make_model1_yzu()
         solver = pyo.SolverFactory("ipopt")
@@ -737,6 +738,7 @@ class TestEmbedFunctionWithExistingInputs(unittest.TestCase):
             self.assertIn((i, j), nz_set)
         np.testing.assert_allclose(pred_hess.toarray(), hess.toarray())
 
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
     def test_solve(self):
         m, pyomo_nlp, nlp = self._create_model_and_nlp()
         m_yzu = make_model2_yzu()
@@ -794,6 +796,7 @@ class TestNLPFromFunctionFromNLP(unittest.TestCase):
         m.obj = pyo.Objective(expr=0.0)
         return m
 
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
     def test_qp(self):
         m = self._make_qp_model()
         nlp = PyomoNLP(m)
@@ -824,6 +827,7 @@ class TestNLPFromFunctionFromNLP(unittest.TestCase):
         # different conventions for multipliers.
         np.testing.assert_allclose(-dual_nlp, dual_pyomo)
 
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
     def test_nonlin(self):
         m = self._make_nonlin_model()
         nlp = PyomoNLP(m)
@@ -854,6 +858,7 @@ class TestNLPFromFunctionFromNLP(unittest.TestCase):
         # different conventions for multipliers.
         np.testing.assert_allclose(-dual_nlp, dual_pyomo)
 
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
     def test_square(self):
         m = self._make_square_model()
         nlp = PyomoNLP(m)
@@ -903,6 +908,7 @@ class TestReFixVars(unittest.TestCase):
         m.obj = pyo.Objective(expr=m.x[1]**2 + 3.0*m.x[2]**2)
         return m
 
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
     def test_solve_fix_constraints(self):
         n_primals = 3
         value_map = {0: 1, 1: 2, 2: 3}
@@ -913,6 +919,7 @@ class TestReFixVars(unittest.TestCase):
         x, results = cyipopt.solve(tee=True)
         np.testing.assert_allclose(x, [1, 2, 3])
 
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
     def test_solve_fixed_nlp(self):
         m_fixed = self._make_model()
         m_fixed.u.fix(2.0)
@@ -947,6 +954,7 @@ class TestReFixVars(unittest.TestCase):
         self.assertAlmostEqual(x[x2_idx], m_fixed.x[2].value)
         self.assertAlmostEqual(x[u_idx], m_fixed.u.value)
 
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
     def test_refix_and_solve(self):
         m_fixed = self._make_model()
         m_fixed.u.fix(2.0)
@@ -992,6 +1000,7 @@ class TestReFixVars(unittest.TestCase):
         self.assertAlmostEqual(x[x2_idx], m_fixed.x[2].value)
         self.assertAlmostEqual(x[u_idx], m_fixed.u.value)
 
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
     def test_fixed_nlp(self):
         m = self._make_model()
         nlp = PyomoNLP(m)
