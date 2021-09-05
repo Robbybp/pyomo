@@ -668,6 +668,75 @@ class TestEmbedFunctionWithExistingInputs(unittest.TestCase):
             self.assertIn((i, j), nz_set)
         np.testing.assert_allclose(jac.toarray(), pred_jac.toarray())
 
+    def test_nlp_objective(self):
+        m, pyomo_nlp, nlp = self._create_model_and_nlp()
+        x0 = np.array([1.5, 1.5, 2.5])
+        nlp.set_primals(x0)
+        iy, iz, iu = 0, 1, 2
+        m.x.set_value(pyo.sqrt(1.5**2 + 1.5**2))
+
+        obj_val = nlp.evaluate_objective()
+        self.assertEqual(pyo.value(m.obj), obj_val)
+
+        grad = nlp.evaluate_grad_objective()
+        pred_grad = [pyo.value(2*m.y), pyo.value(2*m.z), pyo.value(4*m.u)]
+        np.testing.assert_allclose(grad, pred_grad)
+
+    def test_nlp_hessian(self):
+        m, pyomo_nlp, nlp = self._create_model_and_nlp()
+        x0 = np.array([1.5, 1.5, 2.5])
+        nlp.set_primals(x0)
+        iy, iz, iu = 0, 1, 2
+        j1, j2 = pyomo_nlp.get_constraint_indices([m.eq_con1, m.eq_con2])
+        N = nlp.n_primals()
+
+        duals = np.array([1.1, 2.2])
+        obj_factor = 0.5
+        nlp.set_duals(duals)
+        nlp.set_obj_factor(obj_factor)
+        hess = nlp.evaluate_hessian_lag()
+
+        rcd0 = []
+        rcd0.append((iy, iy, 2.0))
+        rcd0.append((iz, iz, 2.0))
+        rcd0.append((iu, iu, 4.0))
+        row = [r for r, _, _ in rcd0]
+        col = [c for _, c, _ in rcd0]
+        data = [d for _, _, d in rcd0]
+        obj_hess = sps.coo_matrix((data, (row, col)), shape=(N, N))
+
+        denom = pyo.value(pyo.sqrt(m.y**2 + m.z**2))
+        rcd1 = []
+        rcd1.append((iy, iy, pyo.value(m.u*(denom**2 - m.y**2)/denom**3)))
+        rcd1.append((iz, iz, pyo.value(m.u*(denom**2 - m.z**2)/denom**3)))
+        rcd1.append((iy, iz, pyo.value(-m.y*m.z*m.u/denom**3)))
+        rcd1.append((iz, iy, pyo.value(-m.y*m.z*m.u/denom**3)))
+        rcd1.append((iy, iu, pyo.value(m.y/denom)))
+        rcd1.append((iu, iy, pyo.value(m.y/denom)))
+        rcd1.append((iz, iu, pyo.value(m.z/denom)))
+        rcd1.append((iu, iz, pyo.value(m.z/denom)))
+        row = [r for r, _, _ in rcd1]
+        col = [c for _, c, _ in rcd1]
+        data = [d for _, _, d in rcd1]
+        hess1 = sps.coo_matrix((data, (row, col)), shape=(N, N))
+
+        rcd2 = []
+        rcd2.append((iy, iz, 1.0))
+        rcd2.append((iz, iy, 1.0))
+        row = [r for r, _, _ in rcd2]
+        col = [c for _, c, _ in rcd2]
+        data = [d for _, _, d in rcd2]
+        hess2 = sps.coo_matrix((data, (row, col)), shape=(N, N))
+
+        pred_hess = obj_factor*obj_hess + duals[0]*hess1 + duals[1]*hess2
+        pred_hess = pred_hess.tocoo()
+
+        self.assertEqual(pred_hess.nnz, hess.nnz)
+        nz_set = set(zip(pred_hess.row, pred_hess.col))
+        for i, j in zip(hess.row, hess.col):
+            self.assertIn((i, j), nz_set)
+        np.testing.assert_allclose(pred_hess.toarray(), hess.toarray())
+
 
 class TestNLPFromFunctionFromNLP(unittest.TestCase):
     def _make_qp_model(self):
@@ -1002,6 +1071,4 @@ class TestReFixVars(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    #unittest.main()
-    TestEmbedFunctionWithExistingInputs().test_nlp_constraints()
-    TestEmbedFunctionWithExistingInputs().test_nlp_jacobian()
+    unittest.main()
