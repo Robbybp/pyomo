@@ -27,7 +27,6 @@ from pyomo.contrib.pynumero.interfaces.pyomo_nlp import PyomoNLP
 from pyomo.contrib.pynumero.interfaces.external_grey_box import (
         ExternalGreyBoxModel,
         )
-#<<<<<<< HEAD
 from pyomo.contrib.pynumero.interfaces.functions import (
         NLPFromFunction,
         FunctionFromNLP,
@@ -41,9 +40,6 @@ from pyomo.contrib.pynumero.algorithms.solvers.cyipopt_solver import (
         CyIpoptSolver,
         cyipopt_available,
         )
-#=======
-#from pyomo.contrib import appsi
-#>>>>>>> imp-fcn-persistent
 import numpy as np
 import scipy.sparse as sps
 
@@ -139,7 +135,7 @@ def get_hessian_of_constraint(constraint, wrt1=None, wrt2=None, nlp=None):
 
 class ExternalPyomoModel(ExternalGreyBoxModel):
     """
-    This is an ExternalGreyBoxModel used to create an exteral model
+    This is an ExternalGreyBoxModel used to create an external model
     from existing Pyomo components. Given a system of variables and
     equations partitioned into "input" and "external" variables and
     "residual" and "external" equations, this class computes the
@@ -313,21 +309,68 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             ((var, var.value) for var in external_vars)
         )
 
-        # Should we create the NLP from the original block or the temp block?
-        # Need to create it from the original block because temp block won't
-        # have residual constraints, whose derivatives are necessary.
         primal_vars = self._nlp.get_pyomo_variables()
-        primals = self._nlp.get_primals()
-        for i, var in enumerate(primal_vars):
-            if var in input_value_map:
-                primals[i] = input_value_map[var]
-            elif var in external_value_map:
-                primals[i] = external_value_map[var]
+        #primals = self._nlp.get_primals()
+        #for i, var in enumerate(primal_vars):
+        #    if var in input_value_map:
+        #        primals[i] = input_value_map[var]
+        #    elif var in external_value_map:
+        #        primals[i] = external_value_map[var]
+        primals = np.array([v.value for v in primal_vars])
         self._nlp.set_primals(primals)
 
     def set_equality_constraint_multipliers(self, eq_con_multipliers):
+        eq_con_multipliers = np.array(eq_con_multipliers)
         for i, val in enumerate(eq_con_multipliers):
             self.residual_con_multipliers[i] = val
+        external_multipliers = self.calculate_external_constraint_multipliers(
+            eq_con_multipliers,
+        )
+        multipliers = np.concatenate((eq_con_multipliers, external_multipliers))
+        cons = self.residual_cons + self.external_cons
+        n_con = len(cons)
+        assert n_con == self._nlp.n_constraints()
+        duals = np.zeros(n_con)
+        indices = self._nlp.get_constraint_indices(cons)
+        for i, idx in enumerate(indices):
+            duals[idx] = multipliers[i]
+        self._nlp.set_duals(duals)
+
+    def calculate_external_constraint_multipliers(self, resid_multipliers):
+        nlp = self._nlp
+        y = self.external_vars
+        f = self.residual_cons
+        g = self.external_cons
+        jfy = nlp.extract_submatrix_jacobian(y, f)
+        jgy = nlp.extract_submatrix_jacobian(y, g)
+
+        jgy_t = jgy.transpose()
+        jfy_t = jfy.transpose()
+        dfdg = - sps.linalg.splu(jgy_t.tocsc()).solve(jfy_t.toarray())
+        resid_multipliers = np.array(resid_multipliers)
+        external_multipliers = dfdg.dot(resid_multipliers)
+        return external_multipliers
+
+    def get_hessians_of_lagrangian(self):
+        nlp = self._nlp
+        x = self.input_vars
+        y = self.external_vars
+        hlxx = nlp.extract_submatrix_hessian_lag(x, x)
+        hlxy = nlp.extract_submatrix_hessian_lag(x, y)
+        hlyy = nlp.extract_submatrix_hessian_lag(y, y)
+        return hlxx, hlxy, hlyy
+
+    def calculate_reduced_hessian_lagrangian(self, hlxx, hlxy, hlyy):
+        hlxx = hlxx.toarray()
+        hlxy = hlxy.toarray()
+        hlyy = hlyy.toarray()
+        dydx = self.evaluate_jacobian_external_variables()
+        term1 = hlxx
+        prod = hlxy.dot(dydx)
+        term2 = prod + prod.transpose()
+        term3 = hlyy.dot(dydx).transpose().dot(dydx)
+        hess_lag = term1 + term2 + term3
+        return hess_lag
 
     def evaluate_equality_constraints(self):
         return self._nlp.extract_subvector_constraints(self.residual_cons)
@@ -461,7 +504,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         d2fdx2 = term1 + term2 + term3 + term4
         return d2fdx2
 
-    def evaluate_hessian_equality_constraints(self):
+    def _evaluate_hessian_equality_constraints(self):
         """
         This method actually evaluates the sum of Hessians times
         multipliers, i.e. the term in the Hessian of the Lagrangian
@@ -475,4 +518,12 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         # is difficult to determine rigorously which coordinates
         # _could possibly_ be nonzero.
         sparse = _dense_to_full_sparse(sum_)
+        return sps.tril(sparse)
+
+    def evaluate_hessian_equality_constraints(self):
+        """
+        """
+        hlxx, hlxy, hlyy = self.get_hessians_of_lagrangian()
+        hess_lag = self.calculate_reduced_hessian_lagrangian(hlxx, hlxy, hlyy)
+        sparse = _dense_to_full_sparse(hess_lag)
         return sps.tril(sparse)
