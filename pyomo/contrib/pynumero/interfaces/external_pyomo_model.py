@@ -263,6 +263,20 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             # Get current primal vector from external nlp
             external_primals = self._external_nlp.get_primals()
 
+            # TODO: solve via decomposition here.
+            # The partition should be computed in __init__, then
+            # here we solve a sequence of square problems (with
+            # a sequence of CyIpoptNLPs).
+            # We should have the option to perform this decomposition or not.
+            # If we don't, our sequence of subproblems should just be length one.
+            #
+            # external_nlp -> external_nlps
+            #
+            # (i)   Put data I need in lists, iterate over these len-1 lists here
+            # (ii)  Do the decomposition in __init__
+            # (iii) Here, perform the necessary update between adjacent solves
+            # (iv)  Populate lists with data from decomposition
+
             # Compress provided input values to keep those in the external
             # system.
             input_coords = self._input_coords_external
@@ -287,6 +301,9 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                 )
 
             # Update Pyomo values after solve.
+            #
+            # We will still update variable values after each solve.
+            #
             pyomo_vars = self._external_nlp.get_pyomo_variables()
             for var, val in zip(pyomo_vars, x):
                 var.set_value(val)
@@ -294,6 +311,10 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         else:
             # CyIpopt is unavailable or a solver was provided, so we
             # solve the Pyomo model of the implicit function system.
+            #
+            # DECOMP: I should create a sequence of external blocks
+            # in addition to NLPs.
+            #
             block = self._external_block
             with TemporarySubsystemManager(
                     to_fix=list(block.input_vars.values())
@@ -308,6 +329,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                     % (type(solver), res.solver.message)
                 )
 
+        # DECOMP: This code should still be valid. Pyomo vars should be
+        # properly updated.
         input_value_map = ComponentMap(zip(input_vars, input_values))
         external_value_map = ComponentMap(
             ((var, var.value) for var in external_vars)
