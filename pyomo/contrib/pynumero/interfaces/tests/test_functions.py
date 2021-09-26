@@ -56,6 +56,9 @@ from pyomo.contrib.pynumero.interfaces.functions import (
     IdentityFunction,
     NLPFromFunction,
 )
+from pyomo.contrib.pynumero.interfaces.nlp_projections import (
+    ProjectedNLP,
+)
 from pyomo.contrib.pynumero.interfaces.abstract_nlps import (
     FixedVarNLP,
 )
@@ -543,6 +546,7 @@ class TestNLPFromFunction(unittest.TestCase):
         np.testing.assert_array_equal(nlp.constraints_lb(), [0.0])
         np.testing.assert_array_equal(nlp.constraints_ub(), [0.0])
 
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
     def test_cyipoptnlp(self):
         m_yz = make_model1_yzu()
         solver = pyo.SolverFactory("ipopt")
@@ -577,6 +581,180 @@ class TestNLPFromFunction(unittest.TestCase):
         self.assertAlmostEqual(x[x_idx_f], m_yz.y.value)
         self.assertAlmostEqual(x[x_idx_f + 1], m_yz.z.value)
         self.assertAlmostEqual(x[u_idx_f], m_yz.u.value)
+
+
+class TestEmbedFunctionWithExistingInputs(unittest.TestCase):
+
+    def _create_model_and_nlp(self):
+        m = make_model2_xyzu()
+        fcn = SimpleFunction2()
+
+        pyomo_nlp = PyomoNLP(m)
+        iden_u = IdentityFunction(1)
+        iden_yz = IdentityFunction(2)
+
+        # Create a function mapping (y, z) -> (x, y, z)
+        fcn_yz = FunctionCombination(fcn, iden_yz)
+        # Create a function mapping (y, z, u) -> (x, y, z, u)
+        # This is the function we want to embed in our NLP
+        fcn_yzu = FunctionStack(fcn_yz, iden_u)
+
+        # Need primals of the PyomoNLP to be in the order (x, y, z, u)
+        ix, iy, iz, iu = pyomo_nlp.get_primal_indices([m.x, m.y, m.z, m.u])
+        names = pyomo_nlp.primals_names()
+        # Unfortunate that names are used here rather than coordinates
+        primals_ordering = [names[ix], names[iy], names[iz], names[iu]]
+        proj_nlp = ProjectedNLP(pyomo_nlp, primals_ordering)
+        # Create a function from our reordered NLP
+        nlp_fcn = FunctionFromNLP(proj_nlp)
+
+        # Compose function-from-NLP with the new function mapping
+        # "embedded variables" to "NLP variables"
+        fcn_comp = FunctionComposition(nlp_fcn, fcn_yzu)
+        nlp = NLPFromFunction(fcn_comp)
+
+        return m, pyomo_nlp, nlp
+
+    def test_nlp_constraints(self):
+        m, pyomo_nlp, nlp = self._create_model_and_nlp()
+        # Because I created the "inner function" and re-ordered the NLP,
+        # I know that the coordinates correspond to (y, z, u) in order
+        x0 = np.array([1.5, 1.5, 2.5])
+        m.x.set_value(pyo.sqrt(1.5**2 + 1.5**2))
+
+        self.assertEqual(nlp.n_primals(), 3)
+        self.assertEqual(nlp.n_constraints(), 2)
+
+        nlp.set_primals(x0)
+
+        clb1 = nlp.constraints_lb()
+        clb2 = pyomo_nlp.constraints_lb()
+        cub1 = nlp.constraints_ub()
+        cub2 = pyomo_nlp.constraints_ub()
+        np.testing.assert_array_equal(clb1, clb2)
+        np.testing.assert_array_equal(cub1, cub2)
+
+        constraints = pyomo_nlp.get_pyomo_constraints()
+        con_values = nlp.evaluate_constraints()
+        for con, val in zip(constraints, con_values):
+            self.assertEqual(pyo.value(con.body), val)
+
+    def test_nlp_jacobian(self):
+        m, pyomo_nlp, nlp = self._create_model_and_nlp()
+        x0 = np.array([1.5, 1.5, 2.5])
+        nlp.set_primals(x0)
+        iy, iz, iu = 0, 1, 2
+        j1, j2 = pyomo_nlp.get_constraint_indices([m.eq_con1, m.eq_con2])
+
+        jac = nlp.evaluate_jacobian()
+
+        M = nlp.n_constraints()
+        N = nlp.n_primals()
+
+        rcd = []
+        denom = pyo.sqrt(m.y.value**2 + m.z.value**2)
+        rcd.append((j1, iy, pyo.value(m.y*m.u/denom)))
+        rcd.append((j1, iz, pyo.value(m.z*m.u/denom)))
+        rcd.append((j1, iu, denom))
+        rcd.append((j2, iy, m.z.value))
+        rcd.append((j2, iz, m.y.value))
+        row = [r for r, _, _ in rcd]
+        col = [c for _, c, _ in rcd]
+        data = [d for _, _, d in rcd]
+        pred_jac = sps.coo_matrix((data, (row, col)), shape=(M, N))
+
+        self.assertEqual(pred_jac.nnz, jac.nnz)
+        nz_set = set((i, j) for i, j, d in rcd)
+        for i, j in zip(jac.row, jac.col):
+            self.assertIn((i, j), nz_set)
+        np.testing.assert_allclose(jac.toarray(), pred_jac.toarray())
+
+    def test_nlp_objective(self):
+        m, pyomo_nlp, nlp = self._create_model_and_nlp()
+        x0 = np.array([1.5, 1.5, 2.5])
+        nlp.set_primals(x0)
+        iy, iz, iu = 0, 1, 2
+        m.x.set_value(pyo.sqrt(1.5**2 + 1.5**2))
+
+        obj_val = nlp.evaluate_objective()
+        self.assertEqual(pyo.value(m.obj), obj_val)
+
+        grad = nlp.evaluate_grad_objective()
+        pred_grad = [pyo.value(2*m.y), pyo.value(2*m.z), pyo.value(4*m.u)]
+        np.testing.assert_allclose(grad, pred_grad)
+
+    def test_nlp_hessian(self):
+        m, pyomo_nlp, nlp = self._create_model_and_nlp()
+        x0 = np.array([1.5, 1.5, 2.5])
+        nlp.set_primals(x0)
+        iy, iz, iu = 0, 1, 2
+        j1, j2 = pyomo_nlp.get_constraint_indices([m.eq_con1, m.eq_con2])
+        N = nlp.n_primals()
+
+        duals = np.array([1.1, 2.2])
+        obj_factor = 0.5
+        nlp.set_duals(duals)
+        nlp.set_obj_factor(obj_factor)
+        hess = nlp.evaluate_hessian_lag()
+
+        rcd0 = []
+        rcd0.append((iy, iy, 2.0))
+        rcd0.append((iz, iz, 2.0))
+        rcd0.append((iu, iu, 4.0))
+        row = [r for r, _, _ in rcd0]
+        col = [c for _, c, _ in rcd0]
+        data = [d for _, _, d in rcd0]
+        obj_hess = sps.coo_matrix((data, (row, col)), shape=(N, N))
+
+        denom = pyo.value(pyo.sqrt(m.y**2 + m.z**2))
+        rcd1 = []
+        rcd1.append((iy, iy, pyo.value(m.u*(denom**2 - m.y**2)/denom**3)))
+        rcd1.append((iz, iz, pyo.value(m.u*(denom**2 - m.z**2)/denom**3)))
+        rcd1.append((iy, iz, pyo.value(-m.y*m.z*m.u/denom**3)))
+        rcd1.append((iz, iy, pyo.value(-m.y*m.z*m.u/denom**3)))
+        rcd1.append((iy, iu, pyo.value(m.y/denom)))
+        rcd1.append((iu, iy, pyo.value(m.y/denom)))
+        rcd1.append((iz, iu, pyo.value(m.z/denom)))
+        rcd1.append((iu, iz, pyo.value(m.z/denom)))
+        row = [r for r, _, _ in rcd1]
+        col = [c for _, c, _ in rcd1]
+        data = [d for _, _, d in rcd1]
+        hess1 = sps.coo_matrix((data, (row, col)), shape=(N, N))
+
+        rcd2 = []
+        rcd2.append((iy, iz, 1.0))
+        rcd2.append((iz, iy, 1.0))
+        row = [r for r, _, _ in rcd2]
+        col = [c for _, c, _ in rcd2]
+        data = [d for _, _, d in rcd2]
+        hess2 = sps.coo_matrix((data, (row, col)), shape=(N, N))
+
+        pred_hess = obj_factor*obj_hess + duals[0]*hess1 + duals[1]*hess2
+        pred_hess = pred_hess.tocoo()
+
+        self.assertEqual(pred_hess.nnz, hess.nnz)
+        nz_set = set(zip(pred_hess.row, pred_hess.col))
+        for i, j in zip(hess.row, hess.col):
+            self.assertIn((i, j), nz_set)
+        np.testing.assert_allclose(pred_hess.toarray(), hess.toarray())
+
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
+    def test_solve(self):
+        m, pyomo_nlp, nlp = self._create_model_and_nlp()
+        m_yzu = make_model2_yzu()
+
+        x0 = np.array([1.5, 1.5, 2.5])
+        nlp.set_primals(x0)
+
+        problem = CyIpoptNLP(nlp)
+        cyipopt = CyIpoptSolver(problem)
+        x, res = cyipopt.solve(x0=x0)
+
+        ipopt = pyo.SolverFactory("ipopt")
+        ipopt.solve(m_yzu)
+        pred_values = [m_yzu.y.value, m_yzu.z.value, m_yzu.u.value]
+
+        np.testing.assert_allclose(pred_values, x)
 
 
 class TestNLPFromFunctionFromNLP(unittest.TestCase):
@@ -618,6 +796,7 @@ class TestNLPFromFunctionFromNLP(unittest.TestCase):
         m.obj = pyo.Objective(expr=0.0)
         return m
 
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
     def test_qp(self):
         m = self._make_qp_model()
         nlp = PyomoNLP(m)
@@ -648,6 +827,7 @@ class TestNLPFromFunctionFromNLP(unittest.TestCase):
         # different conventions for multipliers.
         np.testing.assert_allclose(-dual_nlp, dual_pyomo)
 
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
     def test_nonlin(self):
         m = self._make_nonlin_model()
         nlp = PyomoNLP(m)
@@ -678,6 +858,7 @@ class TestNLPFromFunctionFromNLP(unittest.TestCase):
         # different conventions for multipliers.
         np.testing.assert_allclose(-dual_nlp, dual_pyomo)
 
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
     def test_square(self):
         m = self._make_square_model()
         nlp = PyomoNLP(m)
@@ -727,6 +908,7 @@ class TestReFixVars(unittest.TestCase):
         m.obj = pyo.Objective(expr=m.x[1]**2 + 3.0*m.x[2]**2)
         return m
 
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
     def test_solve_fix_constraints(self):
         n_primals = 3
         value_map = {0: 1, 1: 2, 2: 3}
@@ -737,6 +919,7 @@ class TestReFixVars(unittest.TestCase):
         x, results = cyipopt.solve(tee=True)
         np.testing.assert_allclose(x, [1, 2, 3])
 
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
     def test_solve_fixed_nlp(self):
         m_fixed = self._make_model()
         m_fixed.u.fix(2.0)
@@ -771,6 +954,7 @@ class TestReFixVars(unittest.TestCase):
         self.assertAlmostEqual(x[x2_idx], m_fixed.x[2].value)
         self.assertAlmostEqual(x[u_idx], m_fixed.u.value)
 
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
     def test_refix_and_solve(self):
         m_fixed = self._make_model()
         m_fixed.u.fix(2.0)
@@ -816,6 +1000,7 @@ class TestReFixVars(unittest.TestCase):
         self.assertAlmostEqual(x[x2_idx], m_fixed.x[2].value)
         self.assertAlmostEqual(x[u_idx], m_fixed.u.value)
 
+    @unittest.skipUnless(cyipopt_available, "CyIpopt is not available")
     def test_fixed_nlp(self):
         m = self._make_model()
         nlp = PyomoNLP(m)
