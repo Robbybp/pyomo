@@ -27,7 +27,6 @@ from pyomo.contrib.pynumero.interfaces.pyomo_nlp import PyomoNLP
 from pyomo.contrib.pynumero.interfaces.external_grey_box import (
         ExternalGreyBoxModel,
         )
-#<<<<<<< HEAD
 from pyomo.contrib.pynumero.interfaces.functions import (
         NLPFromFunction,
         FunctionFromNLP,
@@ -41,9 +40,6 @@ from pyomo.contrib.pynumero.algorithms.solvers.cyipopt_solver import (
         CyIpoptSolver,
         cyipopt_available,
         )
-#=======
-#from pyomo.contrib import appsi
-#>>>>>>> imp-fcn-persistent
 import numpy as np
 import scipy.sparse as sps
 
