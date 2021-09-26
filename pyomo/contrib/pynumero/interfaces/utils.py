@@ -147,7 +147,11 @@ class CondensedSparseSummation(object):
             nz_tuples.update(zip(m.row,m.col))
         nz_tuples = sorted(nz_tuples)
         self._nz_tuples = nz_tuples
-        self._row, self._col = list(zip(*nz_tuples))
+        if nz_tuples:
+            self._row, self._col = list(zip(*nz_tuples))
+        else:
+            self._row = tuple()
+            self._col = tuple()
         row_col_to_nz_map = {t:i for i,t in enumerate(nz_tuples)}
 
         self._shape = None
