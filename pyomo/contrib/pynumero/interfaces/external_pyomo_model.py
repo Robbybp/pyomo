@@ -273,6 +273,23 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             # (iii) Here, perform the necessary update between adjacent solves
             # (iv)  Populate lists with data from decomposition
 
+            # (i)
+            # (a) What data do I need to solve a subsystem?
+            # (b) Is any of this data being used elsewhere?
+            #     - NLPs of external constraints - no
+            #     - coordinates in the NLP belonging to inputs - no
+            #       these can get updated as soon as set_inputs is called
+            #     - subset of inputs that appear in the NLP - no
+            #       ^ Can inputs coords/NLP coords be combined in a map?
+            #       With above map, it is trivial to get values to set
+            #       (However, also need to set external var values)
+            #       (and combine into a single map to send to fixing NLP)
+            #       (each NLP potentially needs to receive data from all
+            #       previous NLPs)
+            #     - fixing constraints for each nlp - not used elsewhere
+            #       Needs to fix "global" inputs and "local" inputs...
+            #     - Initialize inputs in the actual external NLP... 
+
             # Compress provided input values to keep those in the external
             # system.
             input_coords = self._input_coords_external
