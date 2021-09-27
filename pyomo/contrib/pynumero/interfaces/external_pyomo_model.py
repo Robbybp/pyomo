@@ -162,6 +162,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             residual_cons,
             external_cons,
             solver=None,
+            decompose=False,
             ):
         # We only need this block to construct the NLP, which wouldn't
         # be necessary if we could compute Hessians of Pyomo constraints.
@@ -179,7 +180,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
 
         self._use_cyipopt = False
         self._n_external_nlps = 1
-        if cyipopt_available and solver is None:
+        if cyipopt_available and solver is None and decompose:
             # (a) What data do I need to solve a subsystem?
             # (b) Is any of this data being used elsewhere?
             #     - NLPs of external constraints - no
@@ -423,9 +424,9 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                         % (type(solver), res["status_msg"])
                     )
 
-            # Update Pyomo values after solve.
-            for i in range(self._n_external_nlps):
+                # Update Pyomo values after solve.
                 pyomo_vars = self._external_nlps[i].get_pyomo_variables()
+                assert len(x) == len(pyomo_vars)
                 for var, val in zip(pyomo_vars, x):
                     var.set_value(val)
 
