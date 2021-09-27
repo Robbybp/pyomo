@@ -23,6 +23,7 @@ from pyomo.util.subsystems import (
         create_subsystem_block,
         TemporarySubsystemManager,
         )
+from pyomo.util.calc_var_value import calculate_variable_from_constraint
 from pyomo.contrib.pynumero.interfaces.pyomo_nlp import PyomoNLP
 from pyomo.contrib.pynumero.interfaces.external_grey_box import (
         ExternalGreyBoxModel,
@@ -210,8 +211,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                 decomp_to_fix.append(inputs)
 
             # Temporarily hard-code the full system
-            self._external_block_decomp = [self._external_block]
-            decomp_to_fix = [list(self._external_block.input_vars.values())]
+            #self._external_block_decomp = [self._external_block]
+            #decomp_to_fix = [list(self._external_block.input_vars.values())]
             #
 
             # NLP for each block of decomposition
@@ -271,10 +272,54 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             ]
             # TODO: For each external NLP, get the NLPs required to fix
             # "local inputs" from all previous NLPs.
+
+            # What data do I need for this implementation?
+            # self._prev_nlp_coords
+            # self._curr_nlp_coords
+            # self._previous_var_constraints
+            self._prev_nlp_coords = [
+                [None for j in range(i)] for i in range(self._n_external_nlps)
+            ]
+            self._curr_nlp_coords = [
+                [None for j in range(i)] for i in range(self._n_external_nlps)
+            ]
+            self._previous_var_constraints = []
+            for i in range(self._n_external_nlps):
+                nlp_i = self._external_nlps[i]
+                # Variables not in the subsystem
+                extra_vars = decomp_to_fix_sets[i]
+                value_map = {}
+                for j in range(i):
+                    block_j = self._external_block_decomp[j]
+                    nlp_j = self._external_nlps[j]
+                    vars_j = list(block_j.vars.values())
+                    prev_vars = [var for var in vars_j if var in extra_vars]
+                    prev_coords = nlp_j.get_primal_indices(prev_vars)
+                    curr_coords = nlp_i.get_primal_indices(prev_vars)
+                    self._prev_nlp_coords[i][j] = prev_coords
+                    self._curr_nlp_coords[i][j] = curr_coords
+
+                    #values = [v.value for v in vars_j]
+                    #value_map.update(dict(zip(curr_coords, values)))
+
+                #self._previous_var_constraints.append(
+                #    FixedVarNLP(nlp_i.n_primals(), value_map)
+                #)
+
+            #previous_var_fcns = [
+            #    FunctionFromNLP(cons, include_objective=False)
+            #    for cons in self._previous_var_constraints
+            #]
+
             combined_fcns = [
                 FunctionCombination(nlp_fcn, fixing_fcn)
                 for nlp_fcn, fixing_fcn in zip(nlp_fcns, fixing_fcns)
             ]
+            #combined_fcns = [
+            #    FunctionCombination(nlp_fcn, fixing_fcn, prev_fcn)
+            #    for nlp_fcn, fixing_fcn, prev_fcn in
+            #    zip(nlp_fcns, fixing_fcns, previous_var_fcns)
+            #]
             combined_nlps = [NLPFromFunction(fcn) for fcn in combined_fcns]
             problems = [CyIpoptNLP(nlp) for nlp in combined_nlps]
             self._solvers = [CyIpoptSolver(problem) for problem in problems]
@@ -291,6 +336,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         self.external_cons = external_cons
 
         self.residual_con_multipliers = [None for _ in residual_cons]
+        self.residual_scaling_factors = None
 
     def n_inputs(self):
         return len(self.input_vars)
@@ -341,9 +387,30 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                 nlp.set_primals(external_primals)
 
             # TODO: update "local" inputs
-
-            # Solve each NLP
             for i in range(self._n_external_nlps):
+                nlp = self._external_nlps[i]
+                primals = nlp.get_primals()
+                # Coords in external systems that were solved for in a
+                # previous external system.
+                value_map = {}
+                for j in range(i):
+                    prev_nlp = self._external_nlps[j]
+                    # Coords of this NLP that appear in NLP i
+                    coords = self._prev_nlp_coords[i][j]
+                    prev_primals = prev_nlp.get_primals()
+                    # Need to map these values to their coord in NLP i
+                    values = prev_primals[coords]
+                    nlp_coords = self._curr_nlp_coords[i][j]
+                    value_map.update(dict(zip(nlp_coords, values)))
+                fixing_constraints = self._fixing_constraints[i]
+                fixing_constraints.update_fixed_values(value_map)
+                for idx, val in value_map.items():
+                    # TODO: Do this with vectorized syntax
+                    primals[idx] = val
+                #primals[prev_var_coords] = prev_var_values
+                nlp.set_primals(primals)
+
+                # Solve each NLP
                 external_primals = self._external_nlps[i].get_primals()
                 solver = self._solvers[i]
                 x0 = external_primals
@@ -420,15 +487,26 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             with TemporarySubsystemManager(
                     to_fix=list(block.input_vars.values())
                     ):
-                res = solver.solve(block)
-            if (res.solver.termination_condition is not
-                    TerminationCondition.optimal):
-                raise ImplicitFunctionError(
-                    "Failed to properly converge implicit function "
-                    "subproblem with solver of type %s.\n"
-                    "Message from the solver is: %s"
-                    % (type(solver), res.solver.message)
-                )
+                for scc, inputs in generate_strongly_connected_components(
+                        list(block.cons.values()),
+                        list(block.vars.values()),
+                        ):
+                    with TemporarySubsystemManager(to_fix=inputs):
+                        if len(scc.vars) == 1:
+                            calculate_variable_from_constraint(
+                                scc.vars[0],
+                                scc.cons[0],
+                            )
+                        else:
+                            res = solver.solve(scc)
+                            if (res.solver.termination_condition is not
+                                    TerminationCondition.optimal):
+                                raise ImplicitFunctionError(
+                                    "Failed to properly converge implicit function "
+                                    "subproblem with solver of type %s.\n"
+                                    "Message from the solver is: %s"
+                                    % (type(solver), res.solver.message)
+                                )
 
         # DECOMP: This code should still be valid. Pyomo vars should be
         # properly updated.
@@ -600,3 +678,13 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         # _could possibly_ be nonzero.
         sparse = _dense_to_full_sparse(sum_)
         return sps.tril(sparse)
+
+    def set_equality_constraint_scaling_factors(self, scaling_factors):
+        """
+        """
+        self.residual_scaling_factors = np.array(scaling_factors)
+
+    def get_equality_constraint_scaling_factors(self):
+        """
+        """
+        return self.residual_scaling_factors
