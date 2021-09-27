@@ -24,9 +24,13 @@ from pyomo.common.config import ConfigDict
 from pyomo.common.errors import ApplicationError
 from pyomo.common.collections import Bunch
 
+from pyomo.common.timing import HierarchicalTimer
+
 from pyomo.opt.base.convert import convert_problem
 from pyomo.opt.base.formats import ResultsFormat, ProblemFormat
 import pyomo.opt.base.results
+
+TIMER = HierarchicalTimer()
 
 logger = logging.getLogger('pyomo.opt')
 
@@ -566,7 +570,9 @@ class OptSolver(object):
             # we're good to go.
             initial_time = time.time()
 
+            TIMER.start("file-write")
             self._presolve(*args, **kwds)
+            TIMER.stop("file-write")
 
             presolve_completion_time = time.time()
             if self._report_timing:
@@ -575,7 +581,9 @@ class OptSolver(object):
             if not _model is None:
                 self._initialize_callbacks(_model)
 
+            TIMER.start("solve")
             _status = self._apply_solver()
+            TIMER.stop("solve")
             if hasattr(self, '_transformation_data'):
                 del self._transformation_data
             if not hasattr(_status, 'rc'):
