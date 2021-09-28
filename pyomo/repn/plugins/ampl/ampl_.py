@@ -40,6 +40,10 @@ from pyomo.core.kernel.variable import IVariable
 logger = logging.getLogger('pyomo.core')
 
 
+from pyomo.common.timing import HierarchicalTimer
+TIMER = HierarchicalTimer()
+
+
 def set_pyomo_amplfunc_env(external_libs):
     # The ASL AMPLFUNC environment variable is nominally a
     # whitespace-separated string of library names.  Beginning
@@ -302,7 +306,7 @@ class ProblemWriter_nl(AbstractProblemWriter):
                  filename,
                  solver_capability,
                  io_options):
-
+        TIMER.start("file-write")
         # Rebuild the OP template (as the expression tree system may
         # have been switched)
         _op_template, _op_comment = _build_op_template()
@@ -408,6 +412,7 @@ class ProblemWriter_nl(AbstractProblemWriter):
         self._OUTPUT = None
         self._varID_map = None
         self._op_string = None
+        TIMER.stop("file-write")
         return filename, symbol_map
 
     def _print_quad_term(self, v1, v2):
