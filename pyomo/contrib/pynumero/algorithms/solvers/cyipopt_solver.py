@@ -31,6 +31,10 @@ from pyomo.common.dependencies import (
 )
 from pyomo.common.tee import redirect_fd, TeeStream
 
+
+from pyomo.common.timing import HierarchicalTimer
+TIMER = HierarchicalTimer()
+
 def _cyipopt_importer():
     import cyipopt
     # cyipopt before version 1.0.3 called the problem class "Problem"
@@ -294,7 +298,9 @@ class CyIpoptNLP(CyIpoptProblemInterface):
 
     def _set_primals_if_necessary(self, x):
         if not np.array_equal(x, self._cached_x):
+            TIMER.start("evaluation")
             self._nlp.set_primals(x)
+            TIMER.stop("evaluation")
             self._cached_x = x.copy()
 
     def _set_duals_if_necessary(self, y):
@@ -345,7 +351,9 @@ class CyIpoptNLP(CyIpoptProblemInterface):
 
     def jacobian(self, x):
         self._set_primals_if_necessary(x)
+        TIMER.start("jacobian")
         self._nlp.evaluate_jacobian(out=self._jac_g)
+        TIMER.stop("jacobian")
         return self._jac_g.data
 
     def hessianstructure(self):
@@ -364,7 +372,9 @@ class CyIpoptNLP(CyIpoptProblemInterface):
         self._set_primals_if_necessary(x)
         self._set_duals_if_necessary(y)
         self._set_obj_factor_if_necessary(obj_factor)
+        TIMER.start("hessian")
         self._nlp.evaluate_hessian_lag(out=self._hess_lag)
+        TIMER.stop("hessian")
         data = np.compress(self._hess_lower_mask, self._hess_lag.data)
         return data
 
