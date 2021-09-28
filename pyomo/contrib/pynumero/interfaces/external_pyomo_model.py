@@ -339,14 +339,15 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         # Should we create the NLP from the original block or the temp block?
         # Need to create it from the original block because temp block won't
         # have residual constraints, whose derivatives are necessary.
-        primal_vars = self._nlp.get_pyomo_variables()
-        primals = self._nlp.get_primals()
-        for i, var in enumerate(primal_vars):
-            if var in input_value_map:
-                primals[i] = input_value_map[var]
-            elif var in external_value_map:
-                primals[i] = external_value_map[var]
-        self._nlp.set_primals(primals)
+        #primal_vars = self._nlp.get_pyomo_variables()
+        #primals = self._nlp.get_primals()
+        #for i, var in enumerate(primal_vars):
+        #    if var in input_value_map:
+        #        primals[i] = input_value_map[var]
+        #    elif var in external_value_map:
+        #        primals[i] = external_value_map[var]
+        #self._nlp.set_primals(primals)
+        self._nlp = PyomoNLP(self._block)
 
     def set_equality_constraint_multipliers(self, eq_con_multipliers):
         for i, val in enumerate(eq_con_multipliers):
