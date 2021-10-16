@@ -217,7 +217,7 @@ class ProjectedNLP(_BaseNLPDelegator):
         projected_x = default*np.ones(self.n_primals(), dtype=np.float64)
         projected_x[self._projected_idxs] = original_primals[self._original_idxs]
         return projected_x
-        
+
     def primals_lb(self):
         return self._project_primals(-np.inf, self._original_nlp.primals_lb())
 
