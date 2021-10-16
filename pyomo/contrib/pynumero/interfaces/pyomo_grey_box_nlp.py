@@ -102,9 +102,9 @@ class PyomoNLPWithGreyBoxBlocks(NLP):
         # let's build up the union of all the primal variables names
         # RBP: Why use names here? Why not just ComponentSet of all
         # data objects?
-        TIMER.start("primals_names")
+        TIMER.start("names")
         primals_names = set(self._pyomo_nlp.primals_names())
-        TIMER.stop("primals_names")
+        TIMER.stop("names")
         for gbnlp in greybox_nlps:
             primals_names.update(gbnlp.primals_names())
 
