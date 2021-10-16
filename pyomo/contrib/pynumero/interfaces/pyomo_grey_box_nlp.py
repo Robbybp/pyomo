@@ -28,6 +28,9 @@ from pyomo.contrib.pynumero.interfaces.utils import make_lower_triangular_full, 
 from pyomo.contrib.pynumero.interfaces.external_grey_box import ExternalGreyBoxBlock
 from pyomo.contrib.pynumero.interfaces.nlp_projections import ProjectedNLP
 
+from pyomo.common.timing import HierarchicalTimer
+TIMER = HierarchicalTimer()
+
 # Todo: make some of the numpy arise not writable from __init__
 class PyomoNLPWithGreyBoxBlocks(NLP):
     def __init__(self, pyomo_model):
@@ -56,10 +59,12 @@ class PyomoNLPWithGreyBoxBlocks(NLP):
             # build a PyomoNLP object (will include the "pyomo"
             # part of the model only)
             self._pyomo_nlp = PyomoNLP(pyomo_model)
+            TIMER.start("names")
             self._pyomo_model_var_names_to_datas = \
                 {v.getname(fully_qualified=True):v for v in pyomo_model.component_data_objects(ctype=pyo.Var, descend_into=True)}
             self._pyomo_model_constraint_names_to_datas = \
                 {c.getname(fully_qualified=True):c for c in pyomo_model.component_data_objects(ctype=pyo.Constraint, descend_into=True)}
+            TIMER.stop("names")
 
         finally:
             # Restore the ctypes of the ExternalGreyBoxBlock components
@@ -97,7 +102,9 @@ class PyomoNLPWithGreyBoxBlocks(NLP):
         # let's build up the union of all the primal variables names
         # RBP: Why use names here? Why not just ComponentSet of all
         # data objects?
+        TIMER.start("primals_names")
         primals_names = set(self._pyomo_nlp.primals_names())
+        TIMER.stop("primals_names")
         for gbnlp in greybox_nlps:
             primals_names.update(gbnlp.primals_names())
 
@@ -448,6 +455,7 @@ class _ExternalGreyBoxAsNLP(NLP):
 
         # create the list of primals and constraint names
         # primals will be ordered inputs, followed by outputs
+        TIMER.start("names")
         self._primals_names = \
             [self._block.inputs[k].getname(fully_qualified=True) \
              for k in self._block.inputs]
@@ -467,6 +475,7 @@ class _ExternalGreyBoxAsNLP(NLP):
         self._constraint_names.extend(
             ['{}.output_constraints[{}]'.format(prefix, nm) \
              for nm in self._ex_model.output_names()])
+        TIMER.stop("names")
 
         # create the numpy arrays of bounds on the primals
         self._primals_lb = BlockVector(2)
