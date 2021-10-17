@@ -1,4 +1,5 @@
 from pyomo.contrib.pynumero.interfaces.nlp import NLP
+from pyomo.common.collections import ComponentMap
 import numpy as np
 import scipy.sparse as sp
 
@@ -176,15 +177,28 @@ class ProjectedNLP(_BaseNLPDelegator):
 
     def _generate_maps(self):
         if self._original_idxs is None or self._projected_idxs is None:
-            primals_ordering_dict = {k:i for i,k in enumerate(self._primals_ordering)}
-            original_names = self._original_nlp.primals_names()
+            #primals_ordering_dict = {k:i for i,k in enumerate(self._primals_ordering)}
+            primals_ordering_map = ComponentMap(
+                (var, i) for i, var in enumerate(self._primals_ordering)
+            )
+            if hasattr(self._original_nlp, "get_pyomo_variables"):
+                original_data = self._original_nlp.get_pyomo_variables()
+            elif hasattr(self._original_nlp, "_block"):
+                original_data = list(self._original_nlp._block.inputs.values())
+            else:
+                raise RuntimeError()
+
+            #original_names = self._original_nlp.primals_names()
             original_idxs = list()
             projected_idxs = list()
-            for i,nm in enumerate(original_names):
-                if nm in primals_ordering_dict:
+            #for i,nm in enumerate(original_names):
+            for i,nm in enumerate(original_data):
+                #if nm in primals_ordering_dict:
+                if nm in primals_ordering_map:
                     # we need the reordering for this element
                     original_idxs.append(i)
-                    projected_idxs.append(primals_ordering_dict[nm])
+                    #projected_idxs.append(primals_ordering_dict[nm])
+                    projected_idxs.append(primals_ordering_map[nm])
             self._original_idxs = np.asarray(original_idxs)
             self._projected_idxs = np.asarray(projected_idxs)
             self._original_to_projected = np.nan*np.zeros(self._original_nlp.n_primals())

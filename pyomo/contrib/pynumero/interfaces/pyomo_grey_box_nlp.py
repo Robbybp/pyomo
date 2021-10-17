@@ -19,7 +19,7 @@ import logging
 from scipy.sparse import coo_matrix, identity
 from pyomo.common.deprecation import deprecated
 import pyomo.core.base as pyo
-from pyomo.common.collections import ComponentMap
+from pyomo.common.collections import ComponentMap, ComponentSet
 from pyomo.contrib.pynumero.sparse.block_matrix import BlockMatrix
 from pyomo.contrib.pynumero.sparse.block_vector import BlockVector
 from pyomo.contrib.pynumero.interfaces.nlp import NLP
@@ -57,10 +57,10 @@ class PyomoNLPWithGreyBoxBlocks(NLP):
             # part of the model only)
             self._pyomo_nlp = PyomoNLP(pyomo_model)
             # TODO: Would like to do without these maps
-            self._pyomo_model_var_names_to_datas = \
-                {v.getname(fully_qualified=True):v for v in pyomo_model.component_data_objects(ctype=pyo.Var, descend_into=True)}
-            self._pyomo_model_constraint_names_to_datas = \
-                {c.getname(fully_qualified=True):c for c in pyomo_model.component_data_objects(ctype=pyo.Constraint, descend_into=True)}
+            #self._pyomo_model_var_names_to_datas = \
+            #    {v.getname(fully_qualified=True):v for v in pyomo_model.component_data_objects(ctype=pyo.Var, descend_into=True)}
+            #self._pyomo_model_constraint_names_to_datas = \
+            #    {c.getname(fully_qualified=True):c for c in pyomo_model.component_data_objects(ctype=pyo.Constraint, descend_into=True)}
 
         finally:
             # Restore the ctypes of the ExternalGreyBoxBlock components
@@ -98,26 +98,50 @@ class PyomoNLPWithGreyBoxBlocks(NLP):
         # let's build up the union of all the primal variables names
         # RBP: Why use names here? Why not just ComponentSet of all
         # data objects?
-        primal_vars = self._pyomo_nlp.get_pyomo_variables()
+        primal_vars = []
+        seen = ComponentSet()
+        for var in self._pyomo_nlp.get_pyomo_variables():
+            if var not in seen:
+                seen.add(var)
+                primal_vars.append(var)
         for gbnlp in greybox_nlps:
-            primal_vars.extend(gbnlp._block.inputs.values())
+            for var in gbnlp._block.inputs.values():
+                if var not in seen:
+                    seen.add(var)
+                    primal_vars.append(var)
 
-        primals_names = set(self._pyomo_nlp.primals_names())
+        constraints = self._pyomo_nlp.get_pyomo_constraints()
+        #constraint_names = [con.name for con in constraints]
         for gbnlp in greybox_nlps:
-            primals_names.update(gbnlp.primals_names())
+            constraints.extend(
+                (gbnlp._block, name) for name in gbnlp.constraint_names()
+            )
+            #constraint_names.extend(gbnlp.constraint_names())
+
+        #primals_names = set(self._pyomo_nlp.primals_names())
+        #for gbnlp in greybox_nlps:
+        #    primals_names.update(gbnlp.primals_names())
+        #primals_names = [var.name for var in primal_vars]
+        #self._primals_names = primals_names
+
+        #self._constraint_names = constraint_names
+        self._constraint_datas = constraints
 
         # sort the names for consistency run to run
-        self._n_primals = len(primals_names)
-        self._primals_names = primals_names = sorted(primals_names)
-        self._pyomo_model_var_datas = [self._pyomo_model_var_names_to_datas[nm] for nm in self._primals_names]
+        self._n_primals = len(primal_vars)
+        #self._n_primals = len(primals_names)
+        #self._primals_names = primals_names = sorted(primals_names)
+        #self._pyomo_model_var_datas = [self._pyomo_model_var_names_to_datas[nm] for nm in self._primals_names]
+        self._pyomo_model_var_datas = primal_vars
 
         # get the names of all the constraints
-        self._constraint_names = list(self._pyomo_nlp.constraint_names())
-        self._constraint_datas = [self._pyomo_model_constraint_names_to_datas.get(nm) for nm in self._constraint_names]
-        for gbnlp in greybox_nlps:
-            self._constraint_names.extend(gbnlp.constraint_names())
-            self._constraint_datas.extend([(gbnlp._block, nm) for nm in gbnlp.constraint_names()])
-        self._n_constraints = len(self._constraint_names)
+        #self._constraint_names = list(self._pyomo_nlp.constraint_names())
+        #self._constraint_datas = [self._pyomo_model_constraint_names_to_datas.get(nm) for nm in self._constraint_names]
+        #for gbnlp in greybox_nlps:
+        #    self._constraint_names.extend(gbnlp.constraint_names())
+        #    self._constraint_datas.extend([(gbnlp._block, nm) for nm in gbnlp.constraint_names()])
+        #self._n_constraints = len(self._constraint_names)
+        self._n_constraints = len(self._constraint_datas)
 
         self._has_hessian_support = True
         for nlp in greybox_nlps:
@@ -125,9 +149,12 @@ class PyomoNLPWithGreyBoxBlocks(NLP):
                 self._has_hessian_support = False
 
         # wrap all the nlp objects with projected nlp objects
-        self._pyomo_nlp = ProjectedNLP(self._pyomo_nlp, primals_names)
+        #self._pyomo_nlp = ProjectedNLP(self._pyomo_nlp, primals_names)
+        #for i,gbnlp in enumerate(greybox_nlps):
+        #    greybox_nlps[i] = ProjectedNLP(greybox_nlps[i], primals_names)
+        self._pyomo_nlp = ProjectedNLP(self._pyomo_nlp, primal_vars)
         for i,gbnlp in enumerate(greybox_nlps):
-            greybox_nlps[i] = ProjectedNLP(greybox_nlps[i], primals_names)
+            greybox_nlps[i] = ProjectedNLP(greybox_nlps[i], primal_vars)
 
         # build a list of all the nlps in order
         self._nlps = nlps = [self._pyomo_nlp]
@@ -453,14 +480,16 @@ class _ExternalGreyBoxAsNLP(NLP):
 
         # create the list of primals and constraint names
         # primals will be ordered inputs, followed by outputs
-        self._primals_names = \
-            [self._block.inputs[k].getname(fully_qualified=True) \
-             for k in self._block.inputs]
-        self._primals_names.extend(
-            [self._block.outputs[k].getname(fully_qualified=True) \
-             for k in self._block.outputs]
-        )
-        n_primals = len(self._primals_names)
+        #self._primals_names = \
+        #    [self._block.inputs[k].getname(fully_qualified=True) \
+        #     for k in self._block.inputs]
+        #self._primals_names.extend(
+        #    [self._block.outputs[k].getname(fully_qualified=True) \
+        #     for k in self._block.outputs]
+        #)
+        #n_primals = len(self._primals_names)
+        n_primals = n_inputs + n_outputs
+        self._n_primals = n_primals
 
         prefix = self._block.getname(fully_qualified=True)
         self._constraint_names = \
@@ -472,6 +501,8 @@ class _ExternalGreyBoxAsNLP(NLP):
         self._constraint_names.extend(
             ['{}.output_constraints[{}]'.format(prefix, nm) \
              for nm in self._ex_model.output_names()])
+        n_constraints = n_eq_constraints + n_outputs
+        self._n_constraints = n_constraints
 
         # create the numpy arrays of bounds on the primals
         self._primals_lb = BlockVector(2)
@@ -536,13 +567,15 @@ class _ExternalGreyBoxAsNLP(NLP):
         self._cached_hessian = None
 
     def n_primals(self):
-        return len(self._primals_names)
+        #return len(self._primals_names)
+        return self._n_primals
 
     def primals_names(self):
         return list(self._primals_names)
 
     def n_constraints(self):
-        return len(self._constraint_names)
+        #return len(self._constraint_names)
+        return self._n_constraints
 
     def constraint_names(self):
         return list(self._constraint_names)
