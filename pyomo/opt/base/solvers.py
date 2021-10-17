@@ -24,6 +24,8 @@ from pyomo.common.config import ConfigDict
 from pyomo.common.errors import ApplicationError
 from pyomo.common.collections import Bunch
 
+from pyomo.common.timing import HierarchicalTimer
+
 from pyomo.opt.base.convert import convert_problem
 from pyomo.opt.base.formats import ResultsFormat, ProblemFormat
 import pyomo.opt.base.results
