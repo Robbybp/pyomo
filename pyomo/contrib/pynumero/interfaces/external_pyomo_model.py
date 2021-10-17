@@ -30,6 +30,8 @@ from pyomo.contrib.incidence_analysis.util import (
 import numpy as np
 import scipy.sparse as sps
 
+from pyomo.common.timing import HierarchicalTimer
+TIMER = HierarchicalTimer()
 
 def _dense_to_full_sparse(matrix):
     """
@@ -181,6 +183,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         return ["residual_%i" % i for i in range(self.n_equality_constraints())]
 
     def set_input_values(self, input_values):
+        TIMER.start("inputs")
         solver = self._solver
         external_cons = self.external_cons
         external_vars = self.external_vars
@@ -205,6 +208,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         values = np.array([var.value for var in to_update])
         primals[indices] = values
         self._nlp.set_primals(primals)
+        TIMER.stop("inputs")
 
     def set_equality_constraint_multipliers(self, eq_con_multipliers):
         """
@@ -294,9 +298,13 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         return hess_lag
 
     def evaluate_equality_constraints(self):
-        return self._nlp.extract_subvector_constraints(self.residual_cons)
+        TIMER.start("eq_residual")
+        resid = self._nlp.extract_subvector_constraints(self.residual_cons) 
+        TIMER.stop("eq_residual")
+        return resid
 
     def evaluate_jacobian_equality_constraints(self):
+        TIMER.start("jacobian")
         nlp = self._nlp
         x = self.input_vars
         y = self.external_vars
@@ -321,7 +329,9 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         # be nonzero. Here, this is all of the entries.
         dfdx = jfx + jfy.dot(dydx)
 
-        return _dense_to_full_sparse(dfdx)
+        sparse = _dense_to_full_sparse(dfdx)
+        TIMER.stop("jacobian")
+        return sparse
 
     def evaluate_jacobian_external_variables(self):
         nlp = self._nlp
@@ -448,6 +458,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         due to these equality constraints.
 
         """
+        TIMER.start("hessian")
         # External multipliers must be calculated after both primals and duals
         # are set, and are only necessary for this Hessian calculation.
         # We know this Hessian calculation wants to use the most recently
@@ -463,4 +474,6 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         # Hessian-of-Lagrangian term in the full space.
         hess_lag = self.calculate_reduced_hessian_lagrangian(hlxx, hlxy, hlyy)
         sparse = _dense_to_full_sparse(hess_lag)
-        return sps.tril(sparse)
+        tril = sps.tril(sparse)
+        TIMER.stop("hessian")
+        return tril
