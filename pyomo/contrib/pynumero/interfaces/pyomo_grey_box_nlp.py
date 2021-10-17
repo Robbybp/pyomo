@@ -28,6 +28,9 @@ from pyomo.contrib.pynumero.interfaces.utils import make_lower_triangular_full, 
 from pyomo.contrib.pynumero.interfaces.external_grey_box import ExternalGreyBoxBlock
 from pyomo.contrib.pynumero.interfaces.nlp_projections import ProjectedNLP
 
+from pyomo.common.timing import HierarchicalTimer
+TIMER = HierarchicalTimer()
+
 # Todo: make some of the numpy arise not writable from __init__
 class PyomoNLPWithGreyBoxBlocks(NLP):
     def __init__(self, pyomo_model):
@@ -247,14 +250,18 @@ class PyomoNLPWithGreyBoxBlocks(NLP):
             self._constraints_scaling = None
 
         # compute the jacobian and the hessian to get nnz
+        TIMER.start("jacobian")
         jac = self.evaluate_jacobian()
         self._nnz_jacobian = len(jac.data)
+        TIMER.stop("jacobian")
 
+        TIMER.start("hessian")
         self._sparse_hessian_summation = None
         self._nnz_hessian_lag = None
         if self._has_hessian_support:
             hess = self.evaluate_hessian_lag()
             self._nnz_hessian_lag = len(hess.data)
+        TIMER.stop("hessian")
 
     # overloaded from NLP
     def n_primals(self):
@@ -491,6 +498,7 @@ class _ExternalGreyBoxAsNLP(NLP):
         n_primals = n_inputs + n_outputs
         self._n_primals = n_primals
 
+        TIMER.start("names")
         prefix = self._block.getname(fully_qualified=True)
         self._constraint_names = \
             ['{}.{}'.format(prefix, nm) \
@@ -503,6 +511,7 @@ class _ExternalGreyBoxAsNLP(NLP):
              for nm in self._ex_model.output_names()])
         n_constraints = n_eq_constraints + n_outputs
         self._n_constraints = n_constraints
+        TIMER.stop("names")
 
         # create the numpy arrays of bounds on the primals
         self._primals_lb = BlockVector(2)

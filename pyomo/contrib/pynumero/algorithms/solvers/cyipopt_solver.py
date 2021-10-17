@@ -550,6 +550,7 @@ class PyomoCyIpoptSolver(object):
 
         # If this is a Pyomo model / block, then we need to create
         # the appropriate PyomoNLP, then wrap it in a CyIpoptNLP
+        TIMER.start("PyNLPwGBB")
         grey_box_blocks = list(model.component_data_objects(
             egb.ExternalGreyBoxBlock, active=True))
         if grey_box_blocks:
@@ -557,8 +558,11 @@ class PyomoCyIpoptSolver(object):
             nlp = pyomo_grey_box.PyomoNLPWithGreyBoxBlocks(model)
         else:
             nlp = pyomo_nlp.PyomoNLP(model)
+        TIMER.stop("PyNLPwGBB")
 
+        TIMER.start("CyIpoptNLP")
         problem = CyIpoptNLP(nlp, intermediate_callback=config.intermediate_callback)
+        TIMER.stop("CyIpoptNLP")
 
         xl = problem.x_lb()
         xu = problem.x_ub()
@@ -568,6 +572,7 @@ class PyomoCyIpoptSolver(object):
         nx = len(xl)
         ng = len(gl)
 
+        TIMER.start("CyIpoptProblem")
         cyipopt_solver = cyipopt.Problem(
             n=nx,
             m=ng,
@@ -577,6 +582,7 @@ class PyomoCyIpoptSolver(object):
             cl=gl,
             cu=gu
         )
+        TIMER.stop("CyIpoptProblem")
 
         # check if we need scaling
         obj_scaling, x_scaling, g_scaling = problem.scaling_factors()
@@ -622,7 +628,9 @@ class PyomoCyIpoptSolver(object):
                 else:
                     fd = None
                 with redirect_fd(fd=1, output=fd, synchronize=False):
+                    TIMER.start("solve")
                     x, info = cyipopt_solver.solve(problem.x_init())
+                    TIMER.stop("solve")
             solverStatus = SolverStatus.ok
         except:
             msg = "Exception encountered during cyipopt solve:"
