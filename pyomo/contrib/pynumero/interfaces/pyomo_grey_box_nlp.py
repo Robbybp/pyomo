@@ -56,6 +56,7 @@ class PyomoNLPWithGreyBoxBlocks(NLP):
             # build a PyomoNLP object (will include the "pyomo"
             # part of the model only)
             self._pyomo_nlp = PyomoNLP(pyomo_model)
+            # TODO: Would like to do without these maps
             self._pyomo_model_var_names_to_datas = \
                 {v.getname(fully_qualified=True):v for v in pyomo_model.component_data_objects(ctype=pyo.Var, descend_into=True)}
             self._pyomo_model_constraint_names_to_datas = \
@@ -97,6 +98,10 @@ class PyomoNLPWithGreyBoxBlocks(NLP):
         # let's build up the union of all the primal variables names
         # RBP: Why use names here? Why not just ComponentSet of all
         # data objects?
+        primal_vars = self._pyomo_nlp.get_pyomo_variables()
+        for gbnlp in greybox_nlps:
+            primal_vars.extend(gbnlp._block.inputs.values())
+
         primals_names = set(self._pyomo_nlp.primals_names())
         for gbnlp in greybox_nlps:
             primals_names.update(gbnlp.primals_names())
