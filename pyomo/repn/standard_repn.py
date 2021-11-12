@@ -30,6 +30,7 @@ from pyomo.core.base.var import (ScalarVar,
                                  Var,
                                  _GeneralVarData,
                                  value)
+from pyomo.core.base.param import ScalarParam, _ParamData
 from pyomo.core.base.numvalue import (NumericConstant,
                                       native_numeric_types)
 from pyomo.core.kernel.expression import expression, noclone
@@ -577,11 +578,14 @@ def _collect_prod(exp, multiplier, idMap, compute_values, verbose, quadratic):
     #
     if not lhs_nonl_None or not rhs_nonl_None:
         return Results(nonl=multiplier*exp)
+
+    # If the resulting expression has a polynomial degree greater than 2
+    # (1 if quadratic is False), then simply return this as a general
+    # nonlinear expression
     #
-    # If not collecting quadratic terms and both terms are linear, then simply return the nonlinear expression
-    #
-    if not quadratic and len(lhs.linear) > 0 and len(rhs.linear) > 0:
-        # NOTE: We treat a product of linear terms as nonlinear unless quadratic is True
+    if ( max(1 if lhs.linear else 0, 2 if quadratic and lhs.quadratic else 0) +
+         max(1 if rhs.linear else 0, 2 if quadratic and rhs.quadratic else 0)
+         > (2 if quadratic else 1) ):
         return Results(nonl=multiplier*exp)
 
     ans = Results()
@@ -764,22 +768,6 @@ def _collect_division(exp, multiplier, idMap, compute_values, verbose, quadratic
 
     return _collect_standard_repn(exp._args_[0], multiplier/denom, idMap, compute_values, verbose, quadratic)
 
-def _collect_reciprocal(exp, multiplier, idMap, compute_values, verbose, quadratic):
-    if exp._args_[0].__class__ in native_numeric_types or not exp._args_[0].is_potentially_variable():  # TODO: coverage?
-        if compute_values:
-            denom = 1.0 * value(exp._args_[0])
-        else:
-            denom = 1.0 * exp._args_[0]
-    else:
-        res =_collect_standard_repn(exp._args_[0], 1, idMap, compute_values, verbose, quadratic)
-        if not (res.nonl.__class__ in native_numeric_types and res.nonl == 0) or len(res.linear) > 0 or (quadratic and len(res.quadratic) > 0):
-            return Results(nonl=multiplier*exp)
-        else:
-            denom = 1.0*res.constant
-    if denom.__class__ in native_numeric_types and denom == 0:
-        raise ZeroDivisionError
-    return Results(constant=multiplier/denom)
-
 def _collect_branching_expr(exp, multiplier, idMap, compute_values, verbose, quadratic):
     if exp._if.__class__ in native_numeric_types:           # TODO: coverage?
         if_val = exp._if
@@ -884,7 +872,6 @@ _repn_collectors = {
     EXPR.MonomialTermExpression                 : _collect_term,
     EXPR.PowExpression                          : _collect_pow,
     EXPR.DivisionExpression                     : _collect_division,
-    EXPR.ReciprocalExpression                   : _collect_reciprocal,
     EXPR.Expr_ifExpression                      : _collect_branching_expr,
     EXPR.UnaryFunctionExpression                : _collect_nonl,
     EXPR.AbsExpression                          : _collect_nonl,
@@ -896,8 +883,8 @@ _repn_collectors = {
     EXPR.ExternalFunctionExpression             : _collect_external_fn,
     #_ConnectorData          : _collect_linear_connector,
     #ScalarConnector         : _collect_linear_connector,
-    #param._ParamData        : _collect_linear_const,
-    #param.ScalarParam       : _collect_linear_const,
+    _ParamData        : _collect_const,
+    ScalarParam       : _collect_const,
     #param.Param             : _collect_linear_const,
     #parameter               : _collect_linear_const,
     NumericConstant                             : _collect_const,
@@ -1281,7 +1268,6 @@ _linear_repn_collectors = {
     EXPR.MonomialTermExpression                 : _linear_collect_term,
     EXPR.PowExpression                          : _linear_collect_pow,
     #EXPR.DivisionExpression                     : _linear_collect_division,
-    #EXPR.ReciprocalExpression                   : _linear_collect_reciprocal,
     EXPR.Expr_ifExpression                      : _linear_collect_branching_expr,
     #EXPR.UnaryFunctionExpression                : _linear_collect_nonl,
     #EXPR.AbsExpression                          : _linear_collect_nonl,

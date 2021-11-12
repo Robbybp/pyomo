@@ -23,12 +23,98 @@ from io import StringIO
 import pyomo.common.unittest as unittest
 
 from pyomo.core.base import IntegerSet
+from pyomo.core.expr.numeric_expr import (
+    NPV_ProductExpression, NPV_MaxExpression, NPV_MinExpression,
+)
 from pyomo.environ import (
     AbstractModel, ConcreteModel, Set, Param, Var, VarList, RangeSet,
     Suffix, Expression, NonPositiveReals, PositiveReals, Reals, RealSet,
     NonNegativeReals, Integers, Binary, value
 )
 from pyomo.core.base.units_container import units, pint_available, UnitsError
+
+
+class TestVarData(unittest.TestCase):
+    def test_lower_bound(self):
+        m = ConcreteModel()
+        m.x = Var()
+        m.p = Param(mutable=True, initialize=2)
+        self.assertIsNone(m.x.lower)
+        m.x.domain = NonNegativeReals
+        self.assertIs(type(m.x.lower), int)
+        self.assertEqual(value(m.x.lower), 0)
+        m.x.domain = Reals
+        m.x.setlb(5*m.p)
+        self.assertIs(type(m.x.lower), NPV_ProductExpression)
+        self.assertEqual(value(m.x.lower), 10)
+        m.x.domain = NonNegativeReals
+        self.assertIs(type(m.x.lower), NPV_MaxExpression)
+        self.assertEqual(value(m.x.lower), 10)
+        with self.assertRaisesRegex(
+                ValueError, "Potentially variable input of type 'ScalarVar' "
+                "supplied as lower bound for variable 'x'"):
+            m.x.setlb(m.x)
+
+    def test_lower_bound_setter(self):
+        m = ConcreteModel()
+        m.x = Var()
+        self.assertIsNone(m.x.lb)
+        m.x.lb = 1
+        self.assertEqual(m.x.lb, 1)
+        m.x.lower = 2
+        self.assertEqual(m.x.lb, 2)
+        m.x.setlb(3)
+        self.assertEqual(m.x.lb, 3)
+
+        m.y = Var([1])
+        self.assertIsNone(m.y[1].lb)
+        m.y[1].lb = 1
+        self.assertEqual(m.y[1].lb, 1)
+        m.y[1].lower = 2
+        self.assertEqual(m.y[1].lb, 2)
+        m.y[1].setlb(3)
+        self.assertEqual(m.y[1].lb, 3)
+
+    def test_upper_bound(self):
+        m = ConcreteModel()
+        m.x = Var()
+        m.p = Param(mutable=True, initialize=2)
+        self.assertIsNone(m.x.upper)
+        m.x.domain = NonPositiveReals
+        self.assertIs(type(m.x.upper), int)
+        self.assertEqual(value(m.x.upper), 0)
+        m.x.domain = Reals
+        m.x.setub(-5*m.p)
+        self.assertIs(type(m.x.upper), NPV_ProductExpression)
+        self.assertEqual(value(m.x.upper), -10)
+        m.x.domain = NonPositiveReals
+        self.assertIs(type(m.x.upper), NPV_MinExpression)
+        self.assertEqual(value(m.x.upper), -10)
+        with self.assertRaisesRegex(
+                ValueError, "Potentially variable input of type 'ScalarVar' "
+                "supplied as upper bound for variable 'x'"):
+            m.x.setub(m.x)
+
+    def test_upper_bound_setter(self):
+        m = ConcreteModel()
+        m.x = Var()
+        self.assertIsNone(m.x.ub)
+        m.x.ub = 1
+        self.assertEqual(m.x.ub, 1)
+        m.x.upper = 2
+        self.assertEqual(m.x.ub, 2)
+        m.x.setub(3)
+        self.assertEqual(m.x.ub, 3)
+
+        m.y = Var([1])
+        self.assertIsNone(m.y[1].ub)
+        m.y[1].ub = 1
+        self.assertEqual(m.y[1].ub, 1)
+        m.y[1].upper = 2
+        self.assertEqual(m.y[1].ub, 2)
+        m.y[1].setub(3)
+        self.assertEqual(m.y[1].ub, 3)
+
 
 class PyomoModel(unittest.TestCase):
 
@@ -45,6 +131,7 @@ class PyomoModel(unittest.TestCase):
             self.instance = self.model.create_instance(filename)
         else:
             self.instance = self.model.create_instance()
+
 
 class TestSimpleVar(PyomoModel):
 
@@ -1405,6 +1492,7 @@ class MiscVarTests(unittest.TestCase):
     def test_set_bounds_units(self):
         m = ConcreteModel()
         m.x = Var(units=units.g)
+        m.p = Param(mutable=True, initialize=1, units=units.kg)
         m.x.setlb(5)
         self.assertEqual(m.x.lb, 5)
         m.x.setlb(6*units.g)
@@ -1413,6 +1501,10 @@ class MiscVarTests(unittest.TestCase):
         self.assertEqual(m.x.lb, 7000)
         with self.assertRaises(UnitsError):
             m.x.setlb(1*units.s)
+        m.x.setlb(m.p)
+        self.assertEqual(m.x.lb, 1000)
+        m.p = 2 * units.kg
+        self.assertEqual(m.x.lb, 2000)
 
         m.x.setub(2)
         self.assertEqual(m.x.ub, 2)
@@ -1421,7 +1513,11 @@ class MiscVarTests(unittest.TestCase):
         m.x.setub(4*units.kg)
         self.assertEqual(m.x.ub, 4000)
         with self.assertRaises(UnitsError):
-            m.x.setlb(1*units.s)
+            m.x.setub(1*units.s)
+        m.x.setub(m.p)
+        self.assertEqual(m.x.ub, 2000)
+        m.p = 3 * units.kg
+        self.assertEqual(m.x.ub, 3000)
 
 
 if __name__ == "__main__":

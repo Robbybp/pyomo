@@ -17,11 +17,11 @@ from weakref import ref as weakref_ref
 import pyomo.common
 from pyomo.common.deprecation import deprecated, relocated_module_attribute
 from pyomo.common.factory import Factory
-from pyomo.common.fileutils import StreamIndenter
+from pyomo.common.formatting import tabular_writer, StreamIndenter
 from pyomo.common.modeling import NOTSET
+from pyomo.common.sorting import sorted_robust
 from pyomo.core.pyomoobject import PyomoObject
 from pyomo.core.base.component_namer import name_repr, index_repr
-from pyomo.core.base.misc import tabular_writer, sorted_robust
 
 logger = logging.getLogger('pyomo.core')
 
@@ -322,6 +322,10 @@ class _ComponentBase(PyomoObject):
             # The first line should be a hanging indent (i.e., not indented)
             ostream.newline = False
 
+        if self.is_reference():
+            _attr = list(_attr) if _attr else []
+            _attr.append(('ReferenceTo', self.referent))
+
         if _name:
             ostream.write(_name+" : ")
         if _doc:
@@ -544,15 +548,6 @@ class Component(_ComponentBase):
         """Return the component name"""
         return self.name
 
-    def to_string(self, verbose=None, labeler=None, smap=None, compute_values=False):
-        """Return the component name"""
-        if compute_values:
-            try:
-                return str(self())
-            except:
-                pass
-        return self.name
-
     def getname(self, fully_qualified=False, name_buffer=None, relative_to=None):
         """Returns the component name associated with this object.
 
@@ -584,7 +579,7 @@ class Component(_ComponentBase):
             else:
                 ans = name_repr(local_name)
         else:
-            # Note: we want "getattr(x.parent_block(), x.localname) == x"
+            # Note: we want "getattr(x.parent_block(), x.local_name) == x"
             # so we do not want to call _safe_name_str, as that could
             # add quotes or otherwise escape the string.
             ans = local_name
@@ -853,23 +848,6 @@ class ComponentData(_ComponentBase):
     def __str__(self):
         """Return a string with the component name and index"""
         return self.name
-
-    def to_string(self, verbose=None, labeler=None, smap=None, compute_values=False):
-        """
-        Return a string representation of this component,
-        applying the labeler if passed one.
-        """
-        if compute_values:
-            try:
-                return str(self())
-            except:
-                pass
-        if smap:
-            return smap.getSymbol(self, labeler)
-        if labeler is not None:
-            return labeler(self)
-        else:
-            return self.__str__()
 
     def getname(self, fully_qualified=False, name_buffer=None, relative_to=None):
         """Return a string with the component name and index"""

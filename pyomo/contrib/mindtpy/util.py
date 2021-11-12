@@ -11,16 +11,19 @@
 """Utility functions and classes for the MindtPy solver."""
 from __future__ import division
 import logging
-from pyomo.common.collections import ComponentMap
+from pyomo.common.collections import ComponentMap, Bunch
 from pyomo.core import (Block, Constraint,
                         Objective, Reals, Suffix, Var, minimize, RangeSet, ConstraintList, TransformationFactory)
 from pyomo.core.expr import differentiate
 from pyomo.core.expr import current as EXPR
-from pyomo.opt import SolverFactory
+from pyomo.opt import SolverFactory, SolverResults
 from pyomo.solvers.plugins.solvers.persistent_solver import PersistentSolver
 from pyomo.contrib.gdpopt.util import get_main_elapsed_time, time_code
 from pyomo.core.expr.calculus.derivatives import differentiate
 from pyomo.common.dependencies import attempt_import
+from pyomo.contrib.fbbt.fbbt import fbbt
+from pyomo.solvers.plugins.solvers.gurobi_direct import gurobipy
+from pyomo.solvers.plugins.solvers.gurobi_persistent import GurobiPersistent
 
 pyomo_nlp = attempt_import('pyomo.contrib.pynumero.interfaces.pyomo_nlp')[0]
 numpy = attempt_import('numpy')[0]
@@ -424,7 +427,7 @@ def set_solver_options(opt, solve_data, config, solver_type, regularization=Fals
             contains the specific configurations for the algorithm
         solver_type: String
             The type of the solver, i.e. mip or nlp
-        regularization (bool, optional): Boolean. 
+        regularization (bool, optional): Boolean.
             Defaults to False.
     """
     # TODO: integrate nlp_args here
@@ -446,6 +449,11 @@ def set_solver_options(opt, solve_data, config, solver_type, regularization=Fals
     if solver_name in {'cplex', 'gurobi', 'gurobi_persistent'}:
         opt.options['timelimit'] = remaining
         opt.options['mipgap'] = config.mip_solver_mipgap
+        if solver_name == 'gurobi_persistent' and config.single_tree:
+            # PreCrush: Controls presolve reductions that affect user cuts
+            # You should consider setting this parameter to 1 if you are using callbacks to add your own cuts.
+            opt.set_gurobi_param('PreCrush', 1)
+            opt.set_gurobi_param('LazyConstraints', 1)
         if regularization == True:
             if solver_name == 'cplex':
                 if config.solution_limit is not None:
@@ -544,3 +552,124 @@ def get_integer_solution(model, string_zero=False):
             else:
                 temp.append(int(round(var.value)))
     return tuple(temp)
+
+
+def setup_solve_data(model, config):
+    """ define and initialize solve_data for MindtPy
+
+    Args:
+        model: Pyomo model
+            the model to extract value of integer variables
+        config: MindtPy configurations
+            contains the specific configurations for the algorithm
+    """
+    solve_data = MindtPySolveData()
+    solve_data.results = SolverResults()
+    solve_data.timing = Bunch()
+    solve_data.curr_int_sol = []
+    solve_data.should_terminate = False
+    solve_data.integer_list = []
+
+    # if the objective function is a constant, dual bound constraint is not added.
+    obj = next(model.component_data_objects(ctype=Objective, active=True))
+    if obj.expr.polynomial_degree() == 0:
+        config.use_dual_bound = False
+
+    if config.use_fbbt:
+        fbbt(model)
+        # TODO: logging_level is not logging.INFO here
+        config.logger.info(
+            'Use the fbbt to tighten the bounds of variables')
+
+    solve_data.original_model = model
+    solve_data.working_model = model.clone()
+
+    # Set up iteration counters
+    solve_data.nlp_iter = 0
+    solve_data.mip_iter = 0
+    solve_data.mip_subiter = 0
+    solve_data.nlp_infeasible_counter = 0
+    if config.init_strategy == 'FP':
+        solve_data.fp_iter = 1
+
+    # set up bounds
+    solve_data.LB = float('-inf')
+    solve_data.UB = float('inf')
+    solve_data.LB_progress = [solve_data.LB]
+    solve_data.UB_progress = [solve_data.UB]
+    if config.single_tree and (config.add_no_good_cuts or config.use_tabu_list):
+        solve_data.stored_bound = {}
+    if config.strategy == 'GOA' and (config.add_no_good_cuts or config.use_tabu_list):
+        solve_data.num_no_good_cuts_added = {}
+
+    # Flag indicating whether the solution improved in the past
+    # iteration or not
+    solve_data.solution_improved = False
+    solve_data.bound_improved = False
+
+    if config.nlp_solver == 'ipopt':
+        if not hasattr(solve_data.working_model, 'ipopt_zL_out'):
+            solve_data.working_model.ipopt_zL_out = Suffix(
+                direction=Suffix.IMPORT)
+        if not hasattr(solve_data.working_model, 'ipopt_zU_out'):
+            solve_data.working_model.ipopt_zU_out = Suffix(
+                direction=Suffix.IMPORT)
+
+    return solve_data
+
+
+def copy_var_list_values_from_solution_pool(from_list, to_list, config, solver_model, var_map, solution_name,
+                                            ignore_integrality=False):
+    """Copy variable values from one list to another.
+
+    Rounds to Binary/Integer if necessary
+    Sets to zero for NonNegativeReals if necessary
+
+    Args:
+        from_list: variable list
+            contains variables and their values
+        to_list: variable list
+            contains the variables that need to set value
+        config: ConfigBlock
+            contains the specific configurations for the algorithm
+        solver_model: solver model
+            the solver model
+        var_map: dict
+            the map of pyomo variables to solver variables
+        solution_name: int or str
+            the name of the solution in the solution pool
+    """
+    for v_from, v_to in zip(from_list, to_list):
+        try:
+            if config.mip_solver == 'cplex_persistent':
+                var_val = solver_model.solution.pool.get_values(
+                    solution_name, var_map[v_from])
+            elif config.mip_solver == 'gurobi_persistent':
+                solver_model.setParam(
+                    gurobipy.GRB.Param.SolutionNumber, solution_name)
+                var_val = var_map[v_from].Xn
+            v_to.set_value(var_val)
+        except ValueError as err:
+            err_msg = getattr(err, 'message', str(err))
+            rounded_val = int(round(var_val))
+            # Check to see if this is just a tolerance issue
+            if ignore_integrality \
+                    and v_to.is_integer():
+                v_to.value = var_val
+            elif v_to.is_integer() and (abs(var_val - rounded_val) <= config.integer_tolerance):
+                v_to.set_value(rounded_val)
+            elif abs(var_val) <= config.zero_tolerance and 0 in v_to.domain:
+                v_to.set_value(0)
+            else:
+                config.logger.error(
+                    'Unknown validation domain error setting variable %s', (v_to.name,))
+                raise
+
+
+class GurobiPersistent4MindtPy(GurobiPersistent):
+
+    def _intermediate_callback(self):
+        def f(gurobi_model, where):
+            self._callback_func(self._pyomo_model, self,
+                                where, self.solve_data, self.config)
+        return f
