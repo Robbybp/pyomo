@@ -188,8 +188,27 @@ class TestProjectedNLP(unittest.TestCase):
         denseH = H.todense()
         self.assertTrue(np.array_equal(denseH, expectedH))
 
+
+class TestProjectConstraints(unittest.TestCase):
+
+    def _make_simple_model(self):
+        m = pyo.ConcreteModel()
+        m.x = pyo.Var([0, 1, 2, 3], initialize=1.0)
+        m.con1 = pyo.Constraint(expr=m.x[1]**2 == 5.0)
+        m.con2 = pyo.Constraint(expr=m.x[1] + m.x[0] + m.x[2] == 1.0)
+        m.con3 = pyo.Constraint(
+            expr=m.x[1] + 2*m.x[0] - m.x[2] + m.x[3] == 2.0
+        )
+        m.obj = pyo.Objective(expr=sum(var**2 for var in m.x.values()))
+        return m
+
+    def _test_solve_ipopt(self):
+        m = self._make_simple_model()
+        ipopt = pyo.SolverFactory("ipopt")
+        ipopt.solve(m, tee=True)
+
+
 if __name__ == '__main__':
-    TestRenamedNLP().test_rename()
-    TestProjectedNLP().test_projected()
-    
-    
+    #TestRenamedNLP().test_rename()
+    #TestProjectedNLP().test_projected()
+    TestProjectConstraints().test_solve_ipopt()
