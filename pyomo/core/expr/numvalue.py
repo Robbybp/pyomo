@@ -17,7 +17,6 @@ import sys
 import logging
 
 from pyomo.common.dependencies import numpy as np, numpy_available
-from pyomo.common.deprecation import deprecated
 from pyomo.core.expr.expr_common import (
     _add, _sub, _mul, _div, _pow,
     _neg, _abs, _radd,
@@ -524,11 +523,6 @@ class NumericValue(PyomoObject):
     def local_name(self):
         return self.getname(fully_qualified=False)
 
-    @deprecated("The cname() method has been renamed to getname().",
-                version='5.0')
-    def cname(self, *args, **kwds):
-        return self.getname(*args, **kwds)
-
     def is_numeric_type(self):
         """Return True if this class is a Pyomo numeric object"""
         return True
@@ -890,17 +884,17 @@ functions.""" % (self.name,))
         Returns:
             A string representation for the expression tree.
         """
-        if compute_values:
+        if compute_values and self.is_fixed():
             try:
                 return str(self())
             except:
                 pass        
         if not self.is_constant():
-            if smap:
+            if smap is not None:
                 return smap.getSymbol(self, labeler)
             elif labeler is not None:
                 return labeler(self)
-        return self.__str__()
+        return str(self)
 
 
 class NumericConstant(NumericValue):

@@ -21,6 +21,7 @@ import json
 import os.path
 
 import pyomo.common.unittest as unittest
+from pyomo.common.log import LoggingIntercept
 
 from pyomo.scripting.pyomo_main import main
 from pyomo.scripting.util import cleanup
@@ -82,6 +83,18 @@ class TestKestrel(unittest.TestCase):
         #missing = gamssolvers - amplsolvers
         #self.assertEqual(len(missing) == 0)
 
+    def test_connection_failed(self):
+        try:
+            orig_host = pyomo.neos.kestrel.NEOS.host
+            pyomo.neos.kestrel.NEOS.host = 'neos-bogus-server.org'
+            with LoggingIntercept() as LOG:
+                kestrel = kestrelAMPL()
+            self.assertIsNone(kestrel.neos)
+            self.assertRegex(LOG.getvalue(),
+                             "NEOS is temporarily unavailable:\n\t\(.+\)")
+        finally:
+            pyomo.neos.kestrel.NEOS.host = orig_host
+
 
 class RunAllNEOSSolvers(object):
     def test_bonmin(self):
@@ -133,7 +146,6 @@ class RunAllNEOSSolvers(object):
     def test_mosek(self):
         self._run('mosek')
 
-    @unittest.expectedFailure
     def test_octeract(self):
         self._run('octeract')
 

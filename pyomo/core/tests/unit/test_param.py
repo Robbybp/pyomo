@@ -775,7 +775,7 @@ class ArrayParam6(unittest.TestCase):
         model.C = Set(dimen=1, initialize=[9,8,7,6,5])
         model.x = Param(model.A, model.B, model.C, initialize=-1)
         #model.y = Param(model.B, initialize=(1,1))
-        model.y = Param(model.B, initialize=((1,1,7),2))
+        model.y = Param(model.B, initialize=1)
         instance=model.create_instance()
         self.assertEqual( instance.x.dim(), 6)
         self.assertEqual( instance.y.dim(), 3)
@@ -1562,7 +1562,6 @@ class MiscNonIndexedParamBehaviorTests(unittest.TestCase):
 
     # Test that display actually displays the correct param value
     def test_mutable_display(self):
-        tmp_stream = TempfileManager.create_tempfile(suffix = '.param_display.test')
         model = ConcreteModel()
         model.Q = Param(initialize=0.0, mutable=True)
         self.assertEqual(model.Q.value, 0.0)
@@ -1731,7 +1730,6 @@ class MiscIndexedParamBehaviorTests(unittest.TestCase):
 
     # Test that display actually displays the correct param value
     def test_mutable_display(self):
-        tmp_stream = TempfileManager.create_tempfile(suffix = '.param_display.test')
         model = ConcreteModel()
         model.P = Param([1,2],default=0.0, mutable=True)
         model.Q = Param([1,2],initialize=0.0, mutable=True)
@@ -1794,7 +1792,6 @@ class MiscIndexedParamBehaviorTests(unittest.TestCase):
 
     # Test that pprint actually displays the correct param value
     def test_mutable_pprint(self):
-        tmp_stream = TempfileManager.create_tempfile(suffix = '.param_display.test')
         model = ConcreteModel()
         model.P = Param([1,2],default=0.0, mutable=True)
         model.Q = Param([1,2],initialize=0.0, mutable=True)

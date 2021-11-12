@@ -24,7 +24,7 @@ from io import StringIO
 
 from pyomo.common.collections import Mapping
 from pyomo.common.deprecation import deprecated, deprecation_warning, RenamedClass
-from pyomo.common.fileutils import StreamIndenter
+from pyomo.common.formatting import StreamIndenter
 from pyomo.common.log import is_debug_set
 from pyomo.common.sorting import sorted_robust
 from pyomo.common.timing import ConstructionTimer
@@ -899,9 +899,26 @@ class _BlockData(ActiveComponentData):
 
     def find_component(self, label_or_component):
         """
-        Return a block component given a name.
+        Returns a component in the block given a name.
+
+        Parameters
+        ----------
+        label_or_component : str, Component, or ComponentUID
+            The name of the component to find in this block. String or
+            Component arguments are first converted to ComponentUID.
+
+        Returns
+        -------
+        Component
+            Component on the block identified by the ComponentUID. If
+            a matching component is not found, None is returned.
+
         """
-        return ComponentUID(label_or_component).find_component_on(self)
+        if type(label_or_component) is ComponentUID:
+            cuid = label_or_component
+        else:
+            cuid = ComponentUID(label_or_component)
+        return cuid.find_component_on(self)
 
     def add_component(self, name, val):
         """
