@@ -138,7 +138,13 @@ class RenamedNLP(_BaseNLPDelegator):
 
 
 class ProjectedNLP(_BaseNLPDelegator):
-    def __init__(self, original_nlp, primals_ordering):
+    def __init__(
+            self,
+            original_nlp,
+            primals_ordering,
+            constraints_ordering=None,
+            include_objective=True,
+            ):
         """
         This class takes an NLP that depends on a set of primals (original
         space) and converts it to an NLP that depends on a reordered set of 
@@ -158,10 +164,14 @@ class ProjectedNLP(_BaseNLPDelegator):
             The original NLP object that implements the NLP interface
 
         primals_ordering: list
-           List of strings indicating the desired primal variable 
-           ordering for this NLP. The list can contain new variables
-           that are not in the original NLP, thereby expanding the 
-           space of the primal variables.
+            List of strings indicating the desired primal variable 
+            ordering for this NLP. The list can contain new variables
+            that are not in the original NLP, thereby expanding the 
+            space of the primal variables.
+
+        constraints_ordering: list
+            List of coordinates indicating the desired constraints
+            in the original NLP to appear in this NLP.
         """
         super(ProjectedNLP, self).__init__(original_nlp)
         self._primals_ordering = list(primals_ordering)
