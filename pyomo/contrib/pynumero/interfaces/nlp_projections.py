@@ -256,6 +256,8 @@ class ProjectedNLP(_BaseNLPDelegator):
     def create_new_vector(self, vector_type):
         if vector_type == 'primals':
             return np.zeros(self.n_primals(), dtype=np.float64)
+        elif vector_type == 'duals':
+            return np.zeros(self.n_constraints(), dtype=np.float64)
         return self._original_nlp.create_new_vector(vector_type)
 
     def set_primals(self, primals):
