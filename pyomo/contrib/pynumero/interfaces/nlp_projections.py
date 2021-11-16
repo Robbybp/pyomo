@@ -184,6 +184,9 @@ class ProjectedNLP(_BaseNLPDelegator):
         self._nnz_jacobian = None
         self._nnz_hessian_lag = None
 
+        original_con_coords = np.arange(self._original_nlp.n_constraints())
+        if constraints_ordering is None:
+            constraints_ordering = original_con_coords
         # NOTE: constraints_ordering is a list (or array) of coordinates,
         # and should only contain coordinates valid for this NLP...
         constraints_ordering = np.array(constraints_ordering)
@@ -192,7 +195,6 @@ class ProjectedNLP(_BaseNLPDelegator):
                 "Constraint coordinates must be valid for the original NLP"
             )
         self._constraints_ordering = constraints_ordering
-        original_con_coords = np.arange(self._original_nlp.n_constraints())
         mask = ~np.isin(original_con_coords, constraints_ordering)
         self._other_constraint_coords = original_con_coords[mask]
         self._projected_constraint_map = {
@@ -345,7 +347,8 @@ class ProjectedNLP(_BaseNLPDelegator):
         # Cache original NLP's duals and temporarily set those for
         # constraints we don't want to zero.
         cached_obj_factor = self._original_nlp.get_obj_factor()
-        self._original_nlp.set_obj_factor(0.0)
+        if not self._include_objective:
+            self._original_nlp.set_obj_factor(0.0)
         cached_duals = self._original_nlp.get_duals()
         duals = np.copy(cached_duals)
         n_other_constraints = len(self._other_constraint_coords)
@@ -372,7 +375,8 @@ class ProjectedNLP(_BaseNLPDelegator):
         new_data = data[self._hessian_nz_mask]
 
         # Reset duals and objective factor of original NLP
-        self._original_nlp.set_obj_factor(cached_obj_factor)
+        if not self._include_objective:
+            self._original_nlp.set_obj_factor(cached_obj_factor)
         self._original_nlp.set_duals(cached_duals)
 
         return sp.coo_matrix((new_data, (new_row,new_col)), shape=(self.n_primals(), self.n_primals()))

@@ -501,16 +501,13 @@ class TestProjectConstraints(unittest.TestCase):
         # Hard-code Hessian we expect
         pred_hess = np.zeros((n_primals_orig, n_primals_orig))
         pred_hess[x0_coord, x0_coord] = duals[0]*1.5*2
+        # These entries are due to the objective function:
+        pred_hess += 2.0*np.identity(n_primals_orig)
         np.testing.assert_allclose(pred_hess, proj_hess.toarray())
 
-        # Hessian has entries due to all constraints and objective
-        # due to our hacky way of getting Hessian-of-subset-of-constraints
-        # using ASL.
-        pred_hess_dict = {}
-        pred_hess_dict[x0_coord, x0_coord] = duals[0]*1.5*2
-        for i in range(n_primals_orig):
-            if i != x0_coord:
-                pred_hess_dict[i, i] = 0.0
+        # These entries are due to the objective function:
+        pred_hess_dict = {(i, i): 2.0 for i in range(n_primals_orig)}
+        pred_hess_dict[x0_coord, x0_coord] += duals[0]*1.5*2
         self.assertEqual(len(pred_hess_dict), len(proj_hess.data))
         for i, j, d in zip(proj_hess.row, proj_hess.col, proj_hess.data):
             self.assertAlmostEqual(pred_hess_dict[i, j], d)
@@ -560,17 +557,14 @@ class TestProjectConstraints(unittest.TestCase):
         pred_hess = np.zeros((n_primals_orig, n_primals_orig))
         pred_hess[x_coord[0], x_coord[0]] = duals[1]*1.5*2
         pred_hess[x_coord[3], x_coord[3]] = duals[0]*1.3*3*2*1.4
+        pred_hess += 2.0*np.identity(n_primals_orig)
         np.testing.assert_allclose(pred_hess, proj_hess.toarray())
 
-        # Hessian has entries due to all constraints and objective
-        # due to our hacky way of getting Hessian-of-subset-of-constraints
-        # using ASL.
-        pred_hess_dict = {}
-        pred_hess_dict[x_coord[0], x_coord[0]] = duals[1]*1.5*2
-        pred_hess_dict[x_coord[3], x_coord[3]] = duals[0]*1.3*3*2*1.4
-        for i in range(n_primals_orig):
-            if i != x_coord[0] and i != x_coord[3]:
-                pred_hess_dict[i, i] = 0.0
+        # These entries are due to the objective:
+        pred_hess_dict = {(i, i): 2.0 for i in range(n_primals_orig)}
+        # These entries are due to the constraints:
+        pred_hess_dict[x_coord[0], x_coord[0]] += duals[1]*1.5*2
+        pred_hess_dict[x_coord[3], x_coord[3]] += duals[0]*1.3*3*2*1.4
         self.assertEqual(len(pred_hess_dict), len(proj_hess.data))
         for i, j, d in zip(proj_hess.row, proj_hess.col, proj_hess.data):
             self.assertAlmostEqual(pred_hess_dict[i, j], d)
