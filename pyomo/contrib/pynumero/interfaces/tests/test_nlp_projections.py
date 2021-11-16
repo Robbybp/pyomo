@@ -577,6 +577,71 @@ class TestProjectConstraints(unittest.TestCase):
             pred_orig_duals[constraints_ordering[i]] = dual
         np.testing.assert_array_equal(duals_in_orig, pred_orig_duals)
 
+    def test_project_nlp_without_objective(self):
+        m = self._make_simple_model()
+        original_nlp = PyomoNLP(m)
+        primals_ordering = [
+            # We don't re-order or project primals here, but this is a
+            # required argument to ProjectedNLP
+            var.name for var in original_nlp.get_pyomo_variables()
+        ]
+        # Maps new index to old index
+        constraints_ordering = original_nlp.get_constraint_indices(
+            [m.con3, m.con2]
+        )
+        # Create projected NLP from original NLP.
+        proj_nlp = ProjectedNLP(
+            original_nlp,
+            primals_ordering,
+            constraints_ordering=constraints_ordering,
+            include_objective=False,
+        )
+        # Make sure we have the right number of variables and constraints
+        n_primals_orig = original_nlp.n_primals()
+        self.assertEqual(proj_nlp.n_primals(), n_primals_orig)
+        n_con_proj = len(constraints_ordering)
+        self.assertEqual(proj_nlp.n_constraints(), n_con_proj)
+
+        # Test objective value and gradient are what we expect.
+        self.assertEqual(proj_nlp.evaluate_objective(), 0.0)
+        np.testing.assert_array_equal(
+            proj_nlp.evaluate_grad_objective(),
+            np.zeros(n_primals_orig),
+        )
+
+        # Now set the original objective factor in addition to duals
+        orig_obj_factor = 2.5
+        original_nlp.set_obj_factor(orig_obj_factor)
+        orig_duals = [-1.0 for _ in range(original_nlp.n_constraints())]
+        original_nlp.set_duals(orig_duals)
+        duals = [1.0 + 0.1*(i+1) for i in range(n_con_proj)]
+        proj_nlp.set_duals(duals)
+        proj_hess = proj_nlp.evaluate_hessian_lag()
+        x_coord = original_nlp.get_primal_indices(
+            [m.x[0], m.x[1], m.x[2], m.x[3]]
+        )
+
+        # Despite not having an objective, we still have these nonzeros
+        # because ASL does not support getting an individual Hessian.
+        pred_hess_dict = {(i, i): 0.0 for i in range(n_primals_orig)}
+        # Entries due to the constraints:
+        pred_hess_dict[x_coord[0], x_coord[0]] += duals[1]*1.5*2
+        pred_hess_dict[x_coord[3], x_coord[3]] += duals[0]*1.3*3*2*1.4
+        self.assertEqual(len(pred_hess_dict), len(proj_hess.data))
+        for i, j, d in zip(proj_hess.row, proj_hess.col, proj_hess.data):
+            self.assertAlmostEqual(pred_hess_dict[i, j], d)
+
+        # Make sure duals in original NLP are what we expect
+        duals_in_orig = original_nlp.get_duals()
+        pred_orig_duals = np.array(orig_duals)
+        for i, dual in enumerate(duals):
+            # These are the duals we sent to the projected NLP
+            pred_orig_duals[constraints_ordering[i]] = dual
+        np.testing.assert_array_equal(duals_in_orig, pred_orig_duals)
+
+        # Make sure objective factor is what we expect:
+        self.assertEqual(original_nlp.get_obj_factor(), orig_obj_factor)
+
 
 if __name__ == '__main__':
     #TestRenamedNLP().test_rename()
@@ -590,3 +655,4 @@ if __name__ == '__main__':
     TestProjectConstraints().test_project_nlp_duals_2constraints()
     TestProjectConstraints().test_project_nlp_hessian_1constraint()
     TestProjectConstraints().test_project_nlp_hessian_2constraints()
+    TestProjectConstraints().test_project_nlp_without_objective()

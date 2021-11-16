@@ -201,6 +201,7 @@ class ProjectedNLP(_BaseNLPDelegator):
             j: i for i, j in enumerate(self._constraints_ordering)
         }
         self._include_objective = include_objective
+        self._default_objective = 0.0
 
     def _generate_maps(self):
         if self._original_idxs is None or self._projected_idxs is None:
@@ -279,8 +280,18 @@ class ProjectedNLP(_BaseNLPDelegator):
     def get_primals_scaling(self):
         return self._project_primals(np.nan, self._original_nlp.get_primals_scaling())
 
+    def evaluate_objective(self):
+        if self._include_objective:
+            objective = self._original_nlp.evaluate_objective()
+        else:
+            objective = self._default_objective
+        return objective
+
     def evaluate_grad_objective(self, out=None):
-        original_grad_objective = self._original_nlp.evaluate_grad_objective()
+        if self._include_objective:
+            original_grad_objective = self._original_nlp.evaluate_grad_objective()
+        else:
+            original_grad_objective = np.zeros(self._original_nlp.n_primals())
         projected_objective = self._project_primals(0.0, original_grad_objective) 
         if out is None:
             return projected_objective
