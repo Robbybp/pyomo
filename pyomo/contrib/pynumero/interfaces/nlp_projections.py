@@ -278,7 +278,11 @@ class ProjectedNLP(_BaseNLPDelegator):
         return self._projected_primals
 
     def get_primals_scaling(self):
-        return self._project_primals(np.nan, self._original_nlp.get_primals_scaling())
+        scaling = self._original_nlp.get_primals_scaling()
+        if scaling is None:
+            scaling = np.ones(self.n_primals())
+        return self._project_primals(np.nan, scaling)
+        #return self._project_primals(np.nan, self._original_nlp.get_primals_scaling())
 
     def evaluate_objective(self):
         if self._include_objective:
