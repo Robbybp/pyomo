@@ -216,6 +216,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         self.external_cons = external_cons
 
         self.residual_con_multipliers = [None for _ in residual_cons]
+        self.residual_scaling_factors = None
 
     def n_inputs(self):
         return len(self.input_vars)
@@ -516,3 +517,9 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         hess_lag = self.calculate_reduced_hessian_lagrangian(hlxx, hlxy, hlyy)
         sparse = _dense_to_full_sparse(hess_lag)
         return sps.tril(sparse)
+
+    def set_equality_constraint_scaling_factors(self, scaling_factors):
+        self.residual_scaling_factors = scaling_factors
+
+    def get_equality_constraint_scaling_factors(self):
+        return self.residual_scaling_factors
