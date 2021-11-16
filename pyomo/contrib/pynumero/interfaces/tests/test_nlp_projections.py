@@ -25,6 +25,10 @@ if not AmplInterface.available():
 import pyomo.environ as pyo
 from pyomo.contrib.pynumero.interfaces.pyomo_nlp import PyomoNLP
 from pyomo.contrib.pynumero.interfaces.nlp_projections import RenamedNLP, ProjectedNLP
+from pyomo.contrib.pynumero.algorithms.solvers.cyipopt_solver import (
+    CyIpoptNLP,
+    CyIpoptSolver,
+)
 
 def create_pyomo_model():
     m = pyo.ConcreteModel()
@@ -728,6 +732,32 @@ class TestProjectConstraints(unittest.TestCase):
         for i, j, d in zip(proj_hess.row, proj_hess.col, proj_hess.data):
             self.assertAlmostEqual(pred_hess_dict[i, j], d)
 
+    def test_project_nlp_and_solve(self):
+        m = self._make_simple_model()
+        original_nlp = PyomoNLP(m)
+        primals_ordering_vars = [m.x[1], m.x[3]]
+        primals_ordering_names = [var.name for var in primals_ordering_vars]
+        primals_ordering = original_nlp.get_primal_indices(
+            primals_ordering_vars
+        )
+        # Maps new index to old index
+        constraints_ordering = original_nlp.get_constraint_indices(
+            [m.con3, m.con2]
+        )
+        # Create projected NLP from original NLP.
+        proj_nlp = ProjectedNLP(
+            original_nlp,
+            primals_ordering_names,
+            constraints_ordering=constraints_ordering,
+            include_objective=False,
+        )
+
+        cyipopt_nlp = CyIpoptNLP(proj_nlp)
+        cyipopt = CyIpoptSolver(cyipopt_nlp)
+        x0 = proj_nlp.get_primals()
+        cyipopt.solve(x0=x0, tee=True)
+        # This problem solves. TODO: test values.
+
 
 if __name__ == '__main__':
     #TestRenamedNLP().test_rename()
@@ -743,3 +773,4 @@ if __name__ == '__main__':
     TestProjectConstraints().test_project_nlp_hessian_2constraints()
     TestProjectConstraints().test_project_nlp_without_objective()
     TestProjectConstraints().test_project_nlp_vars_cons_no_objective()
+    TestProjectConstraints().test_project_nlp_and_solve()
