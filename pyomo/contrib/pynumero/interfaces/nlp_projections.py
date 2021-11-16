@@ -280,7 +280,7 @@ class ProjectedNLP(_BaseNLPDelegator):
     def get_primals_scaling(self):
         scaling = self._original_nlp.get_primals_scaling()
         if scaling is None:
-            scaling = np.ones(self.n_primals())
+            scaling = np.ones(self._original_nlp.n_primals())
         return self._project_primals(np.nan, scaling)
         #return self._project_primals(np.nan, self._original_nlp.get_primals_scaling())
 
@@ -304,6 +304,26 @@ class ProjectedNLP(_BaseNLPDelegator):
 
     def n_constraints(self):
         return len(self._constraints_ordering)
+
+    def constraints_lb(self):
+        original_lb = self._original_nlp.constraints_lb()
+        con_order = self._constraints_ordering
+        projected_lb = original_lb[con_order]
+        return projected_lb
+
+    def constraints_ub(self):
+        original_ub = self._original_nlp.constraints_ub()
+        con_order = self._constraints_ordering
+        projected_ub = original_ub[con_order]
+        return projected_ub
+
+    def get_constraints_scaling(self):
+        original_scaling = self._original_nlp.get_constraints_scaling()
+        if original_scaling is None:
+            original_scaling = np.ones(self._original_nlp.n_constraints())
+        con_order = self._constraints_ordering
+        projected_scaling = original_scaling[con_order]
+        return projected_scaling
 
     def evaluate_constraints(self, out=None):
         original_constraints = self._original_nlp.evaluate_constraints()
