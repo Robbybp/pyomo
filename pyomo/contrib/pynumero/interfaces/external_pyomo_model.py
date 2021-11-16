@@ -155,9 +155,31 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         self._block._obj = Objective(expr=0.0)
         self._nlp = PyomoNLP(self._block)
 
+        self._external_block = create_subsystem_block(
+            external_cons, external_vars
+        )
+        self._external_block._obj = Objective(expr=0.0)
+        self._external_nlp = PyomoNLP(self._external_block)
         self._scc_list = list(generate_strongly_connected_components(
             external_cons, variables=external_vars
         ))
+        name_buffer = {}
+        self._primals_orderings = [
+            [var.getname(name_buffer=name_buffer) for var in block.vars[:]]
+            for block, _ in self._scc_list
+        ]
+        self._constraints_orderings = [
+            self._external_nlp.get_constraint_indices(list(block.cons[:]))
+            for block, _ in self._scc_list
+        ]
+        #self._projected_nlps = [
+        #    ProjectedNLP(
+        #        self._external_nlp,
+        #        var_order,
+        #        con_order,
+
+        #    )
+        #]
 
         assert len(external_vars) == len(external_cons)
 
