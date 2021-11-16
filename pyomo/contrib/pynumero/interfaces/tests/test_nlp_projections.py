@@ -642,6 +642,92 @@ class TestProjectConstraints(unittest.TestCase):
         # Make sure objective factor is what we expect:
         self.assertEqual(original_nlp.get_obj_factor(), orig_obj_factor)
 
+    def test_project_nlp_vars_cons_no_objective(self):
+        """
+        This is essentially what I want to use this class for.
+        Specify a square system of variables and constraints from an NLP,
+        then solve that square system with Newton's method.
+        (This test only specifies the "sub-NLP" -- it does not solve.)
+        """
+        m = self._make_simple_model()
+        original_nlp = PyomoNLP(m)
+        primals_ordering_vars = [m.x[0], m.x[3]]
+        primals_ordering_names = [var.name for var in primals_ordering_vars]
+        primals_ordering = original_nlp.get_primal_indices(
+            primals_ordering_vars
+        )
+        # Maps new index to old index
+        constraints_ordering = original_nlp.get_constraint_indices(
+            [m.con3, m.con2]
+        )
+        # Create projected NLP from original NLP.
+        proj_nlp = ProjectedNLP(
+            original_nlp,
+            primals_ordering_names,
+            constraints_ordering=constraints_ordering,
+            include_objective=False,
+        )
+        # Make sure we have the right number of variables and constraints
+        n_primals_orig = original_nlp.n_primals()
+        n_primals_proj = len(primals_ordering)
+        self.assertEqual(proj_nlp.n_primals(), n_primals_proj)
+        n_con_proj = len(constraints_ordering)
+        self.assertEqual(proj_nlp.n_constraints(), n_con_proj)
+
+        #
+        # Test constraint evaluation
+        #
+        orig_con = original_nlp.evaluate_constraints()
+        proj_con = proj_nlp.evaluate_constraints()
+        self.assertEqual(len(proj_con), len(constraints_ordering))
+        for i_proj, i_orig in enumerate(constraints_ordering):
+            self.assertEqual(proj_con[i_proj], orig_con[i_orig])
+
+        #
+        # Test Jacobian evaluation
+        #
+        # Get original and projected Jacobians
+        orig_jac = original_nlp.evaluate_jacobian()
+        proj_jac = proj_nlp.evaluate_jacobian()
+        # Make sure projected Jacobian has right shape
+        self.assertEqual(proj_jac.shape, (n_con_proj, n_primals_proj))
+
+        constraint_coord_set = set(constraints_ordering)
+        primal_coord_set = set(primals_ordering)
+        nz_to_retain = [(i, j) for i, j in zip(orig_jac.row, orig_jac.col)
+                if i in constraint_coord_set and j in primal_coord_set]
+        nz_to_retain_set = set(nz_to_retain)
+        nz_dict = {
+            (i, j): d for i, j, d in 
+            zip(orig_jac.row, orig_jac.col, orig_jac.data)
+            if (i, j) in nz_to_retain_set
+        }
+        # Make sure projected Jacobian has expected nonzero structure
+        # and values
+        self.assertEqual(len(proj_jac.data), len(nz_to_retain))
+        for i, j, d in zip(proj_jac.row, proj_jac.col, proj_jac.data):
+            # Map projected index to old index
+            pred_val = nz_dict[constraints_ordering[i], primals_ordering[j]]
+            self.assertEqual(pred_val, d)
+
+        #
+        # Test Hessian evaluation
+        #
+        duals = [1.0 + 0.1*(i+1) for i in range(n_con_proj)]
+        proj_nlp.set_duals(duals)
+        proj_hess = proj_nlp.evaluate_hessian_lag()
+        # Know these coords because I created primals_ordering:
+        x0_coord, x3_coord = 0, 1
+
+        # These entries are due to the objective:
+        pred_hess_dict = {(i, i): 0.0 for i in range(n_primals_proj)}
+        # These entries are due to the constraints:
+        pred_hess_dict[x0_coord, x0_coord] += duals[1]*1.5*2
+        pred_hess_dict[x3_coord, x3_coord] += duals[0]*1.3*3*2*1.4
+        self.assertEqual(len(pred_hess_dict), len(proj_hess.data))
+        for i, j, d in zip(proj_hess.row, proj_hess.col, proj_hess.data):
+            self.assertAlmostEqual(pred_hess_dict[i, j], d)
+
 
 if __name__ == '__main__':
     #TestRenamedNLP().test_rename()
@@ -656,3 +742,4 @@ if __name__ == '__main__':
     TestProjectConstraints().test_project_nlp_hessian_1constraint()
     TestProjectConstraints().test_project_nlp_hessian_2constraints()
     TestProjectConstraints().test_project_nlp_without_objective()
+    TestProjectConstraints().test_project_nlp_vars_cons_no_objective()
