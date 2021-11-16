@@ -21,8 +21,13 @@ from pyomo.util.subsystems import (
     TemporarySubsystemManager,
 )
 from pyomo.contrib.pynumero.interfaces.pyomo_nlp import PyomoNLP
+from pyomo.contrib.pynumero.interfaces.nlp_projections import ProjectedNLP
 from pyomo.contrib.pynumero.interfaces.external_grey_box import (
     ExternalGreyBoxModel,
+)
+from pyomo.contrib.pynumero.algorithms.solvers.cyipopt_solver import (
+    CyIpoptNLP,
+    CyIpoptSolver,
 )
 from pyomo.contrib.incidence_analysis.util import (
     generate_strongly_connected_components,
@@ -156,7 +161,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         self._nlp = PyomoNLP(self._block)
 
         self._external_block = create_subsystem_block(
-            external_cons, external_vars
+            external_cons, external_vars+input_vars
         )
         self._external_block._obj = Objective(expr=0.0)
         self._external_nlp = PyomoNLP(self._external_block)
@@ -172,14 +177,34 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             self._external_nlp.get_constraint_indices(list(block.cons[:]))
             for block, _ in self._scc_list
         ]
-        #self._projected_nlps = [
-        #    ProjectedNLP(
-        #        self._external_nlp,
-        #        var_order,
-        #        con_order,
+        self._projected_nlps = [
+            ProjectedNLP(
+                self._external_nlp,
+                var_order,
+                con_order,
+                include_objective=False,
+            )
+            for var_order, con_order in
+            zip(self._primals_orderings, self._constraints_orderings)
+        ]
+        self._cyipopt_nlps = [CyIpoptNLP(nlp) for nlp in self._projected_nlps]
+        self._scc_solvers = [CyIpoptSolver(nlp) for nlp in self._cyipopt_nlps]
 
-        #    )
-        #]
+        # Need to know which input_vars live in external_nlp
+        self._external_primals = ComponentSet(
+            self._external_nlp.get_pyomo_variables()
+        )
+        self._input_vars_in_external = [
+            var for var in input_vars if var in self._external_primals
+        ]
+        self._inputs_in_external = [
+            i for i, var in enumerate(input_vars)
+            if var in self._external_primals
+        ]
+        coords = self._external_nlp.get_primal_indices(
+            self._input_vars_in_external
+        )
+        self._external_primal_input_coords = coords
 
         assert len(external_vars) == len(external_cons)
 
@@ -211,14 +236,33 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         for var, val in zip(input_vars, input_values):
             var.set_value(val)
 
-        for block, inputs in self._scc_list:
-            if len(block.vars) == 1:
-                calculate_variable_from_constraint(
-                    block.vars[0], block.cons[0]
-                )
-            else:
-                with TemporarySubsystemManager(to_fix=inputs):
-                    solver.solve(block)
+        # i.   Set input values in _external_nlp, which presumably has values
+        #      from last solve.
+        # ii.  Get primals from each projected NLP
+        # iii. Solve each projected NLP, using current primals as initial guess
+        # iv.  Transfer primals from _external_nlp back to Pyomo counterparts
+
+        input_values = np.array(input_values)
+        external_primals = self._external_nlp.get_primals()
+        external_primals[self._external_primal_input_coords] = \
+                input_values[self._inputs_in_external]
+        self._external_nlp.set_primals(external_primals)
+        scc_primals = [nlp.get_primals() for nlp in self._projected_nlps]
+        for solver, x0 in zip(self._scc_solvers, scc_primals):
+            x = solver.solve(x0=x0)
+        external_primals = self._external_nlp.get_primals()
+        external_primal_vars = self._external_nlp.get_pyomo_variables()
+        for var, val in zip(external_primals, external_primal_vars):
+            var.set_value(val)
+
+        #for block, inputs in self._scc_list:
+        #    if len(block.vars) == 1:
+        #        calculate_variable_from_constraint(
+        #            block.vars[0], block.cons[0]
+        #        )
+        #    else:
+        #        with TemporarySubsystemManager(to_fix=inputs):
+        #            solver.solve(block)
 
         # Send updated variable values to NLP for dervative evaluation
         primals = self._nlp.get_primals()
