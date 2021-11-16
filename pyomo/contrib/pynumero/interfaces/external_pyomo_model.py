@@ -170,8 +170,10 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         ))
         name_buffer = {}
         self._primals_orderings = [
-            [var.getname(name_buffer=name_buffer) for var in block.vars[:]]
-            for block, _ in self._scc_list
+            [
+                var.getname(fully_qualified=True, name_buffer=name_buffer)
+                for var in block.vars[:]
+            ] for block, _ in self._scc_list
         ]
         self._constraints_orderings = [
             self._external_nlp.get_constraint_indices(list(block.cons[:]))
@@ -252,7 +254,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             x = solver.solve(x0=x0)
         external_primals = self._external_nlp.get_primals()
         external_primal_vars = self._external_nlp.get_pyomo_variables()
-        for var, val in zip(external_primals, external_primal_vars):
+        for var, val in zip(external_primal_vars, external_primals):
             var.set_value(val)
 
         #for block, inputs in self._scc_list:
