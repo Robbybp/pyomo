@@ -184,6 +184,22 @@ class ProjectedNLP(_BaseNLPDelegator):
         self._nnz_jacobian = None
         self._nnz_hessian_lag = None
 
+        # NOTE: constraints_ordering is a list (or array) of coordinates,
+        # and should only contain coordinates valid for this NLP...
+        constraints_ordering = np.array(constraints_ordering)
+        if not np.all(constraints_ordering <= original_nlp.n_constraints()):
+            raise ValueError(
+                "Constraint coordinates must be valid for the original NLP"
+            )
+        self._constraints_ordering = constraints_ordering
+        original_con_coords = np.arange(self._original_nlp.n_constraints())
+        mask = ~np.isin(original_con_coords, constraints_ordering)
+        self._other_constraint_coords = original_con_coords[mask]
+        self._projected_constraint_map = {
+            j: i for i, j in enumerate(self._constraints_ordering)
+        }
+        self._include_objective = include_objective
+
     def _generate_maps(self):
         if self._original_idxs is None or self._projected_idxs is None:
             primals_ordering_dict = {k:i for i,k in enumerate(self._primals_ordering)}
@@ -222,7 +238,7 @@ class ProjectedNLP(_BaseNLPDelegator):
         projected_x = default*np.ones(self.n_primals(), dtype=np.float64)
         projected_x[self._projected_idxs] = original_primals[self._original_idxs]
         return projected_x
-        
+
     def primals_lb(self):
         return self._project_primals(-np.inf, self._original_nlp.primals_lb())
 
@@ -267,33 +283,80 @@ class ProjectedNLP(_BaseNLPDelegator):
         np.copyto(out, projected_objective)
         return out
 
+    def n_constraints(self):
+        return len(self._constraints_ordering)
+
+    def evaluate_constraints(self, out=None):
+        original_constraints = self._original_nlp.evaluate_constraints()
+        con_order = self._constraints_ordering
+        self._projected_constraints = original_constraints[con_order]
+        if out is None:
+            return self._projected_constraints
+        np.copyto(out, self._projected_constraints)
+        return out
+
     def evaluate_jacobian(self, out=None):
         original_jacobian = self._original_nlp.evaluate_jacobian()
         if out is not None:
             np.copyto(out.data, original_jacobian.data[self._jacobian_nz_mask])
             return out
-        
+
         row = original_jacobian.row
         col = original_jacobian.col
         data = original_jacobian.data
 
         if self._jacobian_nz_mask is None:
             # need to remap the irow, jcol to the new space and change the size
-            self._jacobian_nz_mask = np.isin(col, self._original_idxs)
+            col_nz_mask = np.isin(col, self._original_idxs)
+            # row_nz_mask identifies which nonzeros belong to a row
+            # (constraint) that is retained by the projected NLP
+            row_nz_mask = np.isin(row, self._constraints_ordering)
+            self._jacobian_nz_mask = col_nz_mask & row_nz_mask
 
         new_col = col[self._jacobian_nz_mask]
         new_col = self._original_to_projected[new_col]
         new_row = row[self._jacobian_nz_mask]
+        new_row = np.fromiter(
+            (self._projected_constraint_map[r] for r in new_row), dtype=int
+        )
         new_data = data[self._jacobian_nz_mask]
 
-        return sp.coo_matrix((new_data, (new_row,new_col)), shape=(self.n_constraints(), self.n_primals()))
+        return sp.coo_matrix(
+            (new_data, (new_row,new_col)),
+            shape=(self.n_constraints(), self.n_primals()),
+        )
+
+    def init_duals(self):
+        orig_duals = self._original_nlp.init_duals()
+        duals = orig_duals[self._constraints_ordering]
+        return duals
+
+    def get_duals(self):
+        orig_duals = self._original_nlp.get_duals()
+        proj_duals = orig_duals[self._constraints_ordering]
+        return proj_duals
+
+    def set_duals(self, duals):
+        orig_duals = self._original_nlp.get_duals()
+        orig_duals[self._constraints_ordering] = duals
+        self._original_nlp.set_duals(orig_duals)
 
     def evaluate_hessian_lag(self, out=None):
+        # Cache original NLP's duals and temporarily set those for
+        # constraints we don't want to zero.
+        cached_obj_factor = self._original_nlp.get_obj_factor()
+        self._original_nlp.set_obj_factor(0.0)
+        cached_duals = self._original_nlp.get_duals()
+        duals = np.copy(cached_duals)
+        n_other_constraints = len(self._other_constraint_coords)
+        duals[self._other_constraint_coords] = np.zeros(n_other_constraints)
+        self._original_nlp.set_duals(duals)
+
         original_hessian = self._original_nlp.evaluate_hessian_lag()
         if out is not None:
             np.copyto(out.data, original_hessian.data[self._hessian_nz_mask])
             return out
-        
+
         row = original_hessian.row
         col = original_hessian.col
         data = original_hessian.data
@@ -307,6 +370,10 @@ class ProjectedNLP(_BaseNLPDelegator):
         new_row = row[self._hessian_nz_mask]
         new_row = self._original_to_projected[new_row]
         new_data = data[self._hessian_nz_mask]
+
+        # Reset duals and objective factor of original NLP
+        self._original_nlp.set_obj_factor(cached_obj_factor)
+        self._original_nlp.set_duals(cached_duals)
 
         return sp.coo_matrix((new_data, (new_row,new_col)), shape=(self.n_primals(), self.n_primals()))
 
