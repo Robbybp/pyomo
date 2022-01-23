@@ -29,7 +29,6 @@ from pyomo.contrib.pynumero.interfaces.external_grey_box import ExternalGreyBoxB
 from pyomo.contrib.pynumero.interfaces.nlp_projections import ProjectedNLP
 
 from pyomo.common.timing import HierarchicalTimer
-TIMER = HierarchicalTimer()
 
 # Todo: make some of the numpy arise not writable from __init__
 class PyomoNLPWithGreyBoxBlocks(NLP):
@@ -114,9 +113,7 @@ class PyomoNLPWithGreyBoxBlocks(NLP):
         # let's build up the union of all the primal variables names
         # RBP: Why use names here? Why not just ComponentSet of all
         # data objects?
-        TIMER.start("primals_names")
         primals_names = set(self._pyomo_nlp.primals_names())
-        TIMER.stop("primals_names")
         for gbnlp in greybox_nlps:
             primals_names.update(gbnlp.primals_names())
 
