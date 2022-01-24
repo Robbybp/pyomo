@@ -24,11 +24,18 @@ from pyomo.contrib.pynumero.interfaces.pyomo_nlp import PyomoNLP
 from pyomo.contrib.pynumero.interfaces.external_grey_box import (
     ExternalGreyBoxModel,
 )
+from pyomo.contrib.pynumero.algorithms.solvers.cyipopt_solver import (
+    CyIpoptNLP,
+    CyIpoptSolver,
+)
 from pyomo.contrib.incidence_analysis.util import (
     generate_strongly_connected_components,
 )
 import numpy as np
 import scipy.sparse as sps
+
+from pyomo.common.timing import HierarchicalTimer
+TIMER = HierarchicalTimer()
 
 
 def _dense_to_full_sparse(matrix):
@@ -159,6 +166,31 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             external_cons, variables=external_vars
         ))
 
+        # Get "vector-valued" SCCs, those of dimension > 0.
+        # We will solve these with a direct IPOPT interface, which requires
+        # some preprocessing.
+        self._vector_scc_list = [
+            (scc, inputs) for scc, inputs in self._scc_list
+            if len(scc.vars) > 1
+        ]
+
+        # Need a dummy objective to create an NLP
+        for scc, inputs in self._vector_scc_list:
+            scc._obj = Objective(expr=0.0)
+
+        self._vector_scc_nlps = [
+            PyomoNLP(scc) for scc, inputs in self._vector_scc_list
+        ]
+        self._cyipopt_nlps = [CyIpoptNLP(nlp) for nlp in self._vector_scc_nlps]
+        self._cyipopt_solvers = [
+            CyIpoptSolver(nlp) for nlp in self._cyipopt_nlps
+        ]
+        self._vector_scc_input_coords = [
+            nlp.get_primal_indices(inputs)
+            for nlp, (scc, inputs) in
+            zip(self._vector_scc_nlps, self._vector_scc_list)
+        ]
+
         assert len(external_vars) == len(external_cons)
 
         self.input_vars = input_vars
@@ -190,14 +222,53 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         for var, val in zip(input_vars, input_values):
             var.set_value(val)
 
+        vector_scc_idx = 0
         for block, inputs in self._scc_list:
             if len(block.vars) == 1:
+                TIMER.start("1x1")
                 calculate_variable_from_constraint(
                     block.vars[0], block.cons[0]
                 )
+                TIMER.stop("1x1")
             else:
-                with TemporarySubsystemManager(to_fix=inputs):
-                    solver.solve(block)
+                TIMER.start("dim > 1") 
+                nlp = self._vector_scc_nlps[vector_scc_idx]
+                input_coords = self._vector_scc_input_coords[vector_scc_idx]
+                cyipopt = self._cyipopt_solvers[vector_scc_idx]
+                _, local_inputs = self._vector_scc_list[vector_scc_idx]
+
+                primals = nlp.get_primals()
+                variables = nlp.get_pyomo_variables()
+                ub = nlp.primals_ub()
+                lb = nlp.primals_lb()
+                # How dangerous is this?
+                # Unclear to me why these flags are set in the first place.
+                ub.flags.writeable = True
+                lb.flags.writeable = True
+
+                # Set values and bounds from inputs to the SCC.
+                # This works because values have been set in the original
+                # pyomo model, either by a previous SCC solve, or from the
+                # "global inputs"
+                for i, var in zip(input_coords, local_inputs):
+                    primals[i] = var.value
+                    ub[i] = var.value
+                    lb[i] = var.value
+                nlp.set_primals(primals)
+                TIMER.start("solve")
+                sol, _ = cyipopt.solve(x0=primals)
+                TIMER.stop("solve")
+                nlp.set_primals(sol)
+                for var, val in zip(variables, sol):
+                    var.set_value(val)
+                ub.flags.writeable = False
+                lb.flags.writeable = False
+
+                #with TemporarySubsystemManager(to_fix=inputs):
+                #    solver.solve(block)
+
+                vector_scc_idx += 1
+                TIMER.stop("dim > 1") 
 
         # Send updated variable values to NLP for dervative evaluation
         primals = self._nlp.get_primals()
