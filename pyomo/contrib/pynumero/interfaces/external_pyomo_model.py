@@ -180,16 +180,11 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         for scc, inputs in self._vector_scc_list:
             scc._obj = Objective(expr=0.0)
 
-            # I need to set these scaling factors so Pyomo NLPs I create
-            # from these blocks don't break when ProjectedNLP calls
-            # get_primals_scaling
+            # I need scaling_factor so Pyomo NLPs I create from these blocks
+            # don't break when ProjectedNLP calls get_primals_scaling
             scc.scaling_factor = Suffix(direction=Suffix.EXPORT)
-            for var in scc.vars:
-                scc.scaling_factor[var] = 1.0
-            for con in scc.cons:
-                scc.scaling_factor[con] = 1.0
-            for var in inputs:
-                scc.scaling_factor[var] = 1.0
+            # HACK: scaling_factor just needs to be nonempty.
+            scc.scaling_factor[scc._obj] = 1.0
 
         # These are the "original NLPs" that will be projected
         self._vector_scc_nlps = [
@@ -265,15 +260,6 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                 primals = nlp.get_primals()
                 variables = nlp.get_pyomo_variables()
 
-                # In the projected NLP approach, we don't have to alter
-                # bounds.
-                #ub = nlp.primals_ub()
-                #lb = nlp.primals_lb()
-                ## How dangerous is this?
-                ## Unclear to me why these flags are set in the first place.
-                #ub.flags.writeable = True
-                #lb.flags.writeable = True
-
                 # Set values and bounds from inputs to the SCC.
                 # This works because values have been set in the original
                 # pyomo model, either by a previous SCC solve, or from the
@@ -281,8 +267,6 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                 for i, var in zip(input_coords, local_inputs):
                     # Set primals (inputs) in the original NLP
                     primals[i] = var.value
-                    #ub[i] = var.value
-                    #lb[i] = var.value
                 # This affects future evaulations in the ProjectedNLP
                 nlp.set_primals(primals)
                 TIMER.start("solve")
@@ -293,17 +277,14 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                 # Set primals from solution in projected NLP. This updates
                 # values in the original NLP
                 proj_nlp.set_primals(sol)
-                #nlp.set_primals(sol)
                 # I really only need to set new primals for the variables in
                 # the ProjectedNLP. However, I can only get a list of variables
                 # from the original Pyomo NLP, so here some of the values I'm
                 # setting are redundant.
-                new_primals = proj_nlp.get_primals()
+                new_primals = nlp.get_primals()
+                assert len(new_primals) == len(variables)
                 for var, val in zip(variables, new_primals):
                     var.set_value(val)
-
-                #ub.flags.writeable = False
-                #lb.flags.writeable = False
 
                 #with TemporarySubsystemManager(to_fix=inputs):
                 #    solver.solve(block)
