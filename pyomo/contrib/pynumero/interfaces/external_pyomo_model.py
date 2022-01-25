@@ -213,7 +213,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
 
         # Knowing the input coordinates in each projected NLP is no longer
         # necessary.
-        # This is not true, see below.
+        # This is not true, as we still need to update variables in the NLP...
         self._vector_scc_input_coords = [
             self._nlp.get_primal_indices(inputs)
             for scc, inputs in self._vector_scc_list
@@ -268,9 +268,13 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                 calculate_variable_from_constraint(
                     block.vars[0], block.cons[0]
                 )
+                primals = self._nlp.get_primals()
+                var_idx = self._nlp.get_primal_indices([block.vars[0]])[0]
+                primals[var_idx] = block.vars[0].value
+                self._nlp.set_primals(primals)
                 TIMER.stop("1x1")
             else:
-                TIMER.start("dim > 1") 
+                TIMER.start("dim > 1")
                 #nlp = self._vector_scc_nlps[vector_scc_idx]
                 nlp = self._nlp
                 proj_nlp = self._vector_proj_nlps[vector_scc_idx]
