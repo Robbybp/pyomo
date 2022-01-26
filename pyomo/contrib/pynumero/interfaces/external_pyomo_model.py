@@ -14,7 +14,7 @@ from pyomo.core.base.var import Var
 from pyomo.core.base.constraint import Constraint
 from pyomo.core.base.objective import Objective
 from pyomo.core.expr.visitor import identify_variables
-from pyomo.common.collections import ComponentSet
+from pyomo.common.collections import ComponentSet, ComponentMap
 from pyomo.core.base.suffix import Suffix
 from pyomo.util.calc_var_value import calculate_variable_from_constraint
 from pyomo.util.subsystems import (
@@ -185,9 +185,23 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         ]
 
         # These NLPs will no longer be used.
-        #self._vector_scc_nlps = [
-        #    PyomoNLP(scc) for scc, inputs in self._vector_scc_list
-        #]
+        # I am using these NLPs, and associated projected NLPs,
+        # for debugging purposes.
+        for scc, _ in self._vector_scc_list:
+            scc._obj = Objective(expr=0.0)
+            scc.scaling_factor = Suffix(direction=Suffix.EXPORT)
+            scc.scaling_factor[scc._obj] = 1.0
+
+        self._vector_scc_nlps = [
+            PyomoNLP(scc) for scc, inputs in self._vector_scc_list
+        ]
+        # Reorder constraints to achieve same order as NLP with projected
+        # constraints
+        self._reordered_coords = [
+            nlp.get_constraint_indices(list(scc.cons.values()))
+            for nlp, (scc, _) in
+            zip(self._vector_scc_nlps, self._vector_scc_list)
+        ]
         self._vector_scc_var_names = [
             [var.name for var in scc.vars.values()]
             for scc, inputs in self._vector_scc_list
@@ -197,12 +211,28 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             for scc, _ in self._vector_scc_list
         ]
 
+        # Projected NLPs based on SCC NLPs, for debugging:
+        self._vector_projvar_nlps = [
+            ProjectedNLP(nlp, names, con_order, include_objective=False)
+            for nlp, names, con_order in
+            zip(self._vector_scc_nlps, self._vector_scc_var_names, self._reordered_coords)
+        ]
+
         # Now these projected NLPs are based on the original NLP
         self._vector_proj_nlps = [
             ProjectedNLP(
                 self._nlp, names, coords, include_objective=False
             ) for names, coords in
             zip(self._vector_scc_var_names, self._vector_scc_con_coords)
+        ]
+
+        # Additional CyIpoptNLPs and solvers, based on the projected NLPs
+        # from the PyomoNLPs for each SCC
+        self._cyipopt_projvar_nlps = [
+            CyIpoptNLP(nlp) for nlp in self._vector_projvar_nlps
+        ]
+        self._cyipopt_projvar_solvers = [
+            CyIpoptSolver(nlp) for nlp in self._cyipopt_projvar_nlps
         ]
 
         # We will solve the ProjectedNLPs rather than the original NLPs
@@ -217,6 +247,11 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         self._vector_scc_input_coords = [
             self._nlp.get_primal_indices(inputs)
             for scc, inputs in self._vector_scc_list
+        ]
+        self._vector_scc_projvar_input_coords = [
+            nlp.get_primal_indices(inputs)
+            for nlp, (_, inputs) in
+            zip(self._vector_scc_nlps, self._vector_scc_list)
         ]
 
         assert len(external_vars) == len(external_cons)
@@ -276,6 +311,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             else:
                 TIMER.start("dim > 1")
                 #nlp = self._vector_scc_nlps[vector_scc_idx]
+                TIMER.start("full-nlp")
                 nlp = self._nlp
                 proj_nlp = self._vector_proj_nlps[vector_scc_idx]
                 input_coords = self._vector_scc_input_coords[vector_scc_idx]
@@ -294,13 +330,36 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                 for i, var in zip(input_coords, local_inputs):
                     # Set primals (inputs) in the original NLP
                     primals[i] = var.value
+                TIMER.stop("full-nlp")
+
+                # Solving the system based off the PyomoNLP
+                TIMER.start("scc-nlp")
+                scc_nlp = self._vector_scc_nlps[vector_scc_idx]
+                scc_primals = scc_nlp.get_primals()
+                scc_input_coords = self._vector_scc_projvar_input_coords[vector_scc_idx]
+                for i, var in zip(scc_input_coords, local_inputs):
+                    scc_primals[i] = var.value
+                scc_nlp.set_primals(scc_primals)
+                scc_proj_nlp = self._vector_projvar_nlps[vector_scc_idx]
+                scc_cyipopt = self._cyipopt_projvar_solvers[vector_scc_idx]
+                scc_x0 = scc_proj_nlp.get_primals()
+                scc_x0_copy = scc_x0.copy()
+                scc_sol, scc_stat = scc_cyipopt.solve(x0=scc_x0)
+                scc_proj_nlp.set_primals(scc_sol)
+
+                scc_new_primals = scc_nlp.get_primals()
+                scc_variables = scc_nlp.get_pyomo_variables()
+                scc_var_map = ComponentMap(zip(scc_variables, scc_new_primals))
+                TIMER.stop("scc-nlp")
 
                 # This affects future evaulations in the ProjectedNLP
                 nlp.set_primals(primals)
-                TIMER.start("solve")
+                TIMER.start("full-nlp")
                 x0 = proj_nlp.get_primals()
-                sol, _ = cyipopt.solve(x0=x0)
-                TIMER.stop("solve")
+                x0_copy = x0.copy()
+                sol, stat = cyipopt.solve(x0=x0)
+                if b"degrees of freedom" in stat["status_msg"]:
+                    import pdb; pdb.set_trace()
 
                 # Set primals from solution in projected NLP. This updates
                 # values in the original NLP
@@ -317,8 +376,29 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
 
                 #new_primals = proj_nlp.get_primals()
                 new_primals = nlp.get_primals()
-                for var, val in zip(variables, new_primals):
-                    var.set_value(val)
+                TIMER.stop("full-nlp")
+
+                PROJVAR = False
+                TIMER.start("check&load")
+                if not PROJVAR:
+                    for var, val in zip(variables, new_primals):
+                        var.set_value(val)
+                        if var.value != val:
+                            print(var.name, var.value, val)
+                        if var in scc_var_map:
+                            if abs(scc_var_map[var] - val) > 0:
+                                print(var.name, scc_var_map[var], val)
+                                # FIXME: Have a difference between these
+                                # two solution values that I can't figure
+                                # out.
+                                import pdb; pdb.set_trace()
+                        if var not in scc_var_map and var.value != val:
+                            # These values should not change
+                            print(var.name, var.value, val)
+                else:
+                    for var, val in zip(scc_variables, scc_new_primals):
+                        var.set_value(val)
+                TIMER.stop("check&load")
 
                 #with TemporarySubsystemManager(to_fix=inputs):
                 #    solver.solve(block)
