@@ -253,6 +253,16 @@ class ProjectedNLP(_BaseNLPDelegator):
     def primals_ub(self):
         return self._project_primals(np.inf, self._original_nlp.primals_ub())
 
+    def constraints_lb(self):
+        orig_lb = self._original_nlp.constraints_lb()
+        lb = orig_lb[self._constraints_ordering]
+        return lb
+
+    def constraints_ub(self):
+        orig_ub = self._original_nlp.constraints_ub()
+        ub = orig_ub[self._constraints_ordering]
+        return ub
+
     def init_primals(self):
         # Todo: think about what to do here if an entry is not defined
         # for now, we default to NaN, but there may be a better way
@@ -284,6 +294,13 @@ class ProjectedNLP(_BaseNLPDelegator):
 
     def get_primals_scaling(self):
         return self._project_primals(np.nan, self._original_nlp.get_primals_scaling())
+
+    def get_constraints_scaling(self):
+        orig_scaling = self._original_nlp.get_constraints_scaling()
+        if orig_scaling is None:
+            return orig_scaling
+        scaling = orig_scaling[self._constraints_ordering]
+        return scaling
 
     def evaluate_objective(self):
         if self._include_objective:
