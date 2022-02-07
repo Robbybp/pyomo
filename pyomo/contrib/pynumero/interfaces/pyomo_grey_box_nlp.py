@@ -28,6 +28,8 @@ from pyomo.contrib.pynumero.interfaces.utils import make_lower_triangular_full, 
 from pyomo.contrib.pynumero.interfaces.external_grey_box import ExternalGreyBoxBlock
 from pyomo.contrib.pynumero.interfaces.nlp_projections import ProjectedNLP
 
+from pyomo.common.timing import HierarchicalTimer
+
 # Todo: make some of the numpy arise not writable from __init__
 class PyomoNLPWithGreyBoxBlocks(NLP):
     def __init__(self, pyomo_model):
@@ -57,6 +59,7 @@ class PyomoNLPWithGreyBoxBlocks(NLP):
             # build a PyomoNLP object (will include the "pyomo"
             # part of the model only)
             self._pyomo_nlp = PyomoNLP(pyomo_model)
+
             self._pyomo_model_var_names_to_datas = {
                 v.getname(
                     fully_qualified=True, name_buffer=_name_buffer

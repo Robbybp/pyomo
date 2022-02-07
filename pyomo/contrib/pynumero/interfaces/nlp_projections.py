@@ -2,6 +2,9 @@ from pyomo.contrib.pynumero.interfaces.nlp import NLP
 import numpy as np
 import scipy.sparse as sp
 
+from pyomo.common.timing import HierarchicalTimer
+TIMER = HierarchicalTimer()
+
 class _BaseNLPDelegator(NLP):
     def __init__(self, original_nlp):
         """
@@ -177,7 +180,9 @@ class ProjectedNLP(_BaseNLPDelegator):
     def _generate_maps(self):
         if self._original_idxs is None or self._projected_idxs is None:
             primals_ordering_dict = {k:i for i,k in enumerate(self._primals_ordering)}
+            TIMER.start("names")
             original_names = self._original_nlp.primals_names()
+            TIMER.stop("names")
             original_idxs = list()
             projected_idxs = list()
             for i,nm in enumerate(original_names):
