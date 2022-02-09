@@ -30,6 +30,9 @@ from pyomo.contrib.incidence_analysis.util import (
 import numpy as np
 import scipy.sparse as sps
 
+from pyomo.common.timing import HierarchicalTimer
+TIMER = HierarchicalTimer()
+
 
 def _dense_to_full_sparse(matrix):
     """
@@ -192,12 +195,18 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
 
         for block, inputs in self._scc_list:
             if len(block.vars) == 1:
+                TIMER.start("1x1")
                 calculate_variable_from_constraint(
                     block.vars[0], block.cons[0]
                 )
+                TIMER.stop("1x1")
             else:
+                TIMER.start("dim > 1")
                 with TemporarySubsystemManager(to_fix=inputs):
+                    TIMER.start("solve")
                     solver.solve(block)
+                    TIMER.stop("solve")
+                TIMER.stop("dim > 1")
 
         # Send updated variable values to NLP for dervative evaluation
         primals = self._nlp.get_primals()
