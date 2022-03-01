@@ -37,6 +37,9 @@ from pyomo.contrib.incidence_analysis.util import (
 import numpy as np
 import scipy.sparse as sps
 
+from pyomo.common.timing import HierarchicalTimer
+TIMER = HierarchicalTimer()
+
 
 def _dense_to_full_sparse(matrix):
     """
@@ -286,10 +289,13 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         vector_scc_idx = 0
         for block, inputs in self._scc_list:
             if len(block.vars) == 1:
+                TIMER.start("1x1")
                 calculate_variable_from_constraint(
                     block.vars[0], block.cons[0]
                 )
+                TIMER.stop("1x1")
             else:
+                TIMER.start("dim > 1") 
                 if self._use_cyipopt:
                     # Transfer variable values into the projected NLP, solve,
                     # and extract values.
@@ -312,8 +318,10 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                         primals[i] = var.value
                     # This affects future evaluations in the ProjectedNLP
                     nlp.set_primals(primals)
+                    TIMER.start("solve")
                     x0 = proj_nlp.get_primals()
                     sol, _ = cyipopt.solve(x0=x0)
+                    TIMER.stop("solve")
 
                     # Set primals from solution in projected NLP. This updates
                     # values in the original NLP
@@ -334,6 +342,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                         solver.solve(block)
 
                 vector_scc_idx += 1
+                TIMER.stop("dim > 1") 
 
         # Send updated variable values to NLP for dervative evaluation
         primals = self._nlp.get_primals()
