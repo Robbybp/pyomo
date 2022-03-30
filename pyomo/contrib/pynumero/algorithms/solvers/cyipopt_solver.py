@@ -480,7 +480,9 @@ class CyIpoptSolver(object):
             else:
                 fd = None
             with redirect_fd(fd=1, output=fd, synchronize=False):
+                TIMER.start("ipopt")
                 x, info = cyipopt_solver.solve(xstart)
+                TIMER.stop("ipopt")
 
         return x, info
 
@@ -622,7 +624,9 @@ class PyomoCyIpoptSolver(object):
                 else:
                     fd = None
                 with redirect_fd(fd=1, output=fd, synchronize=False):
+                    TIMER.start("ipopt")
                     x, info = cyipopt_solver.solve(problem.x_init())
+                    TIMER.stop("ipopt")
             solverStatus = SolverStatus.ok
         except:
             msg = "Exception encountered during cyipopt solve:"
