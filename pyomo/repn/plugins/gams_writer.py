@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -40,7 +41,7 @@ _legal_unary_functions = {
 }
 _arc_functions = {'acos','asin','atan'}
 _dnlp_functions = {'ceil','floor','abs'}
-
+_zero_one = {0, 1}
 #
 # A visitor pattern that creates a string for an expression
 # that is compatible with the GAMS syntax.
@@ -209,18 +210,20 @@ class Categorizer(object):
             v = symbol_map.getObject(var)
             if v.is_fixed():
                 self.fixed.append(var)
-            elif v.is_binary():
-                self.binary.append(var)
+            elif v.is_continuous():
+                if v.lb == 0:
+                    self.positive.append(var)
+                else:
+                    self.reals.append(var)
             elif v.is_integer():
-                if (v.has_lb() and (value(v.lb) >= 0)) and \
-                   (v.has_ub() and (value(v.ub) <= 1)):
+                if all(bnd in _zero_one for bnd in v.bounds):
                     self.binary.append(var)
                 else:
                     self.ints.append(var)
-            elif value(v.lb) == 0:
-                self.positive.append(var)
             else:
-                self.reals.append(var)
+                raise RuntimeError(
+                    "Cannot output variable to GAMS: effective variable "
+                    "domain is not in {Reals, Integers, Binary}")
 
     def __iter__(self):
         """Iterate over all variables.
@@ -681,21 +684,21 @@ class ProblemWriter_gams(AbstractProblemWriter):
         for category, var_name in categorized_vars:
             var = symbolMap.getObject(var_name)
             tc(var)
+            lb, ub = var.bounds
             if category == 'positive':
-                if var.has_ub():
+                if ub is not None:
                     output_file.write("%s.up = %s;\n" %
-                                      (var_name, ftoa(var.ub)))
+                                      (var_name, ftoa(ub)))
             elif category == 'ints':
-                if not var.has_lb():
+                if lb is None:
                     warn_int_bounds = True
                     # GAMS doesn't allow -INF lower bound for ints
                     logger.warning("Lower bound for integer variable %s set "
                                    "to -1.0E+100." % var.name)
                     output_file.write("%s.lo = -1.0E+100;\n" % (var_name))
-                elif value(var.lb) != 0:
-                    output_file.write("%s.lo = %s;\n" %
-                                      (var_name, ftoa(var.lb)))
-                if not var.has_ub():
+                elif lb != 0:
+                    output_file.write("%s.lo = %s;\n" % (var_name, ftoa(lb)))
+                if ub is None:
                     warn_int_bounds = True
                     # GAMS has an option value called IntVarUp that is the
                     # default upper integer bound, which it applies if the
@@ -705,22 +708,17 @@ class ProblemWriter_gams(AbstractProblemWriter):
                                    "to +1.0E+100." % var.name)
                     output_file.write("%s.up = +1.0E+100;\n" % (var_name))
                 else:
-                    output_file.write("%s.up = %s;\n" %
-                                      (var_name, ftoa(var.ub)))
+                    output_file.write("%s.up = %s;\n" % (var_name, ftoa(ub)))
             elif category == 'binary':
-                if var.has_lb() and value(var.lb) != 0:
-                    output_file.write("%s.lo = %s;\n" %
-                                      (var_name, ftoa(var.lb)))
-                if var.has_ub() and value(var.ub) != 1:
-                    output_file.write("%s.up = %s;\n" %
-                                      (var_name, ftoa(var.ub)))
+                if lb != 0:
+                    output_file.write("%s.lo = %s;\n" % (var_name, ftoa(lb)))
+                if ub != 1:
+                    output_file.write("%s.up = %s;\n" % (var_name, ftoa(ub)))
             elif category == 'reals':
-                if var.has_lb():
-                    output_file.write("%s.lo = %s;\n" %
-                                      (var_name, ftoa(var.lb)))
-                if var.has_ub():
-                    output_file.write("%s.up = %s;\n" %
-                                      (var_name, ftoa(var.ub)))
+                if lb is not None:
+                    output_file.write("%s.lo = %s;\n" % (var_name, ftoa(lb)))
+                if ub is not None:
+                    output_file.write("%s.up = %s;\n" % (var_name, ftoa(ub)))
             else:
                 raise KeyError('Category %s not supported' % category)
             if warmstart and var.value is not None:
@@ -815,9 +813,9 @@ class ProblemWriter_gams(AbstractProblemWriter):
                 output_file.write("\nput results;")
                 output_file.write("\nput 'SYMBOL  :  LEVEL  :  MARGINAL' /;")
                 for var in var_list:
-                    output_file.write("\nput %s %s.l %s.m /;" % (var, var, var))
+                    output_file.write("\nput %s ' ' %s.l ' ' %s.m /;" % (var, var, var))
                 for con in constraint_names:
-                    output_file.write("\nput %s %s.l %s.m /;" % (con, con, con))
+                    output_file.write("\nput %s ' ' %s.l ' ' %s.m /;" % (con, con, con))
                 output_file.write("\nput GAMS_OBJECTIVE GAMS_OBJECTIVE.l "
                                   "GAMS_OBJECTIVE.m;\n")
 
@@ -828,7 +826,7 @@ class ProblemWriter_gams(AbstractProblemWriter):
                 output_file.write("\nput statresults;")
                 output_file.write("\nput 'SYMBOL   :   VALUE' /;")
                 for stat in stat_vars:
-                    output_file.write("\nput '%s' %s /;\n" % (stat, stat))
+                    output_file.write("\nput '%s' ' ' %s /;\n" % (stat, stat))
 
 valid_solvers = {
 'ALPHAECP': {'MINLP','MIQCP'},

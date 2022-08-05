@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -54,7 +55,6 @@ DerivedBlock._Block_reserved_words = set(dir(DerivedBlock()))
 
 class TestGenerators(unittest.TestCase):
 
-    @ unittest.nottest
     def generate_model(self):
         #
         # ** DO NOT modify the model below without updating the
@@ -178,8 +178,7 @@ class TestGenerators(unittest.TestCase):
 
         return model
 
-    @unittest.nottest
-    def generator_test(self, ctype):
+    def generator_runner(self, ctype):
 
         model = self.generate_model()
 
@@ -306,32 +305,32 @@ class TestGenerators(unittest.TestCase):
                                  sorted([id(comp) for comp in block.component_data_lists[ctype]]))
 
     def test_Objective(self):
-        self.generator_test(Objective)
+        self.generator_runner(Objective)
 
     def test_Expression(self):
-        self.generator_test(Expression)
+        self.generator_runner(Expression)
 
     def test_Suffix(self):
-        self.generator_test(Suffix)
+        self.generator_runner(Suffix)
 
     def test_Constraint(self):
-        self.generator_test(Constraint)
+        self.generator_runner(Constraint)
 
     def test_Param(self):
-        self.generator_test(Param)
+        self.generator_runner(Param)
 
     def test_Var(self):
-        self.generator_test(Var)
+        self.generator_runner(Var)
 
     def test_Set(self):
-        self.generator_test(Set)
+        self.generator_runner(Set)
 
     def test_SOSConstraint(self):
-        self.generator_test(SOSConstraint)
+        self.generator_runner(SOSConstraint)
 
     def test_Block(self):
 
-        self.generator_test(Block)
+        self.generator_runner(Block)
 
         model = self.generate_model()
 
@@ -594,7 +593,7 @@ class TestBlock(unittest.TestCase):
                          set([]))
         del b.y
 
-        # a block DOES check its own .active flag apparently
+        # a block DOES check its own .active flag
         self.assertEqual(b.collect_ctypes(),
                          set([Var]))
         self.assertEqual(b.collect_ctypes(active=True),
@@ -830,37 +829,37 @@ class TestBlock(unittest.TestCase):
 
         HM = HierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator()]
+        result = [x.name for x in m.block_data_objects()]
         self.assertEqual(HM.PrefixDFS, result)
 
     def test_iterate_hierarchy_PrefixDFS(self):
         HM = HierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.PrefixDepthFirstSearch)]
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.PrefixDepthFirstSearch)]
         self.assertEqual(HM.PrefixDFS, result)
 
     def test_iterate_hierarchy_PrefixDFS_sortIndex(self):
         HM = HierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.PrefixDepthFirstSearch,
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.PrefixDepthFirstSearch,
             sort=SortComponents.indices,
         )]
         self.assertEqual(HM.PrefixDFS_sortIdx, result)
     def test_iterate_hierarchy_PrefixDFS_sortName(self):
         HM = HierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.PrefixDepthFirstSearch,
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.PrefixDepthFirstSearch,
             sort=SortComponents.alphaOrder,
         )]
         self.assertEqual(HM.PrefixDFS_sortName, result)
     def test_iterate_hierarchy_PrefixDFS_sort(self):
         HM = HierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.PrefixDepthFirstSearch,
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.PrefixDepthFirstSearch,
             sort=True
         )]
         self.assertEqual(HM.PrefixDFS_sort, result)
@@ -869,31 +868,31 @@ class TestBlock(unittest.TestCase):
     def test_iterate_hierarchy_PostfixDFS(self):
         HM = HierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.PostfixDepthFirstSearch)]
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.PostfixDepthFirstSearch)]
         self.assertEqual(HM.PostfixDFS, result)
 
     def test_iterate_hierarchy_PostfixDFS_sortIndex(self):
         HM = HierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.PostfixDepthFirstSearch,
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.PostfixDepthFirstSearch,
             sort=SortComponents.indices,
         )]
         self.assertEqual(HM.PostfixDFS_sortIdx, result)
     def test_iterate_hierarchy_PostfixDFS_sortName(self):
         HM = HierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.PostfixDepthFirstSearch,
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.PostfixDepthFirstSearch,
             sort=SortComponents.alphaOrder,
         )]
         self.assertEqual(HM.PostfixDFS_sortName, result)
     def test_iterate_hierarchy_PostfixDFS_sort(self):
         HM = HierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.PostfixDepthFirstSearch,
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.PostfixDepthFirstSearch,
             sort=True
         )]
         self.assertEqual(HM.PostfixDFS_sort, result)
@@ -901,15 +900,15 @@ class TestBlock(unittest.TestCase):
     def test_iterate_hierarchy_BFS(self):
         HM = HierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.BreadthFirstSearch)]
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.BreadthFirstSearch)]
         self.assertEqual(HM.BFS, result)
 
     def test_iterate_hierarchy_BFS_sortIndex(self):
         HM = HierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.BreadthFirstSearch,
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.BreadthFirstSearch,
             sort=SortComponents.indices,
         )]
         self.assertEqual(HM.BFS_sortIdx, result)
@@ -917,8 +916,8 @@ class TestBlock(unittest.TestCase):
     def test_iterate_hierarchy_BFS_sortName(self):
         HM = HierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.BreadthFirstSearch,
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.BreadthFirstSearch,
             sort=SortComponents.alphaOrder,
         )]
         self.assertEqual(HM.BFS_sortName, result)
@@ -926,8 +925,8 @@ class TestBlock(unittest.TestCase):
     def test_iterate_hierarchy_BFS_sort(self):
         HM = HierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.BreadthFirstSearch,
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.BreadthFirstSearch,
             sort=True
         )]
         self.assertEqual(HM.BFS_sort, result)
@@ -935,25 +934,25 @@ class TestBlock(unittest.TestCase):
     def test_iterate_mixed_hierarchy_PrefixDFS_block(self):
         HM = MixedHierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.PrefixDepthFirstSearch,
-            ctype=Block,
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.PrefixDepthFirstSearch,
+            descend_into=Block,
         )]
         self.assertEqual(HM.PrefixDFS_block, result)
     def test_iterate_mixed_hierarchy_PrefixDFS_both(self):
         HM = MixedHierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.PrefixDepthFirstSearch,
-            ctype=(Block,DerivedBlock),
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.PrefixDepthFirstSearch,
+            descend_into=(Block, DerivedBlock),
         )]
         self.assertEqual(HM.PrefixDFS_both, result)
     def test_iterate_mixed_hierarchy_PrefixDFS_SubclassOf(self):
         HM = MixedHierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.PrefixDepthFirstSearch,
-            ctype=SubclassOf(Block),
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.PrefixDepthFirstSearch,
+            descend_into=SubclassOf(Block),
         )]
         self.assertEqual(HM.PrefixDFS_both, result)
         result = [x.name for x in m.component_objects(
@@ -965,32 +964,32 @@ class TestBlock(unittest.TestCase):
         result = [x.name for x in m.component_objects(
             ctype=Block,
             descent_order=TraversalStrategy.PrefixDepthFirstSearch,
-            descend_into=SubclassOf(Var,Block),
+            descend_into=SubclassOf(Var, Block),
         )]
         self.assertEqual(HM.PrefixDFS_block_subclass, result)
 
     def test_iterate_mixed_hierarchy_PostfixDFS_block(self):
         HM = MixedHierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.PostfixDepthFirstSearch,
-            ctype=Block,
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.PostfixDepthFirstSearch,
+            descend_into=Block,
         )]
         self.assertEqual(HM.PostfixDFS_block, result)
     def test_iterate_mixed_hierarchy_PostfixDFS_both(self):
         HM = MixedHierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.PostfixDepthFirstSearch,
-            ctype=(Block,DerivedBlock),
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.PostfixDepthFirstSearch,
+            descend_into=(Block,DerivedBlock),
         )]
         self.assertEqual(HM.PostfixDFS_both, result)
     def test_iterate_mixed_hierarchy_PostfixDFS_SubclassOf(self):
         HM = MixedHierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.PostfixDepthFirstSearch,
-            ctype=SubclassOf(Block),
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.PostfixDepthFirstSearch,
+            descend_into=SubclassOf(Block),
         )]
         self.assertEqual(HM.PostfixDFS_both, result)
         result = [x.name for x in m.component_objects(
@@ -1002,32 +1001,32 @@ class TestBlock(unittest.TestCase):
         result = [x.name for x in m.component_objects(
             ctype=Block,
             descent_order=TraversalStrategy.PostfixDepthFirstSearch,
-            descend_into=SubclassOf(Var,Block),
+            descend_into=SubclassOf(Var, Block),
         )]
         self.assertEqual(HM.PostfixDFS_block_subclass, result)
 
     def test_iterate_mixed_hierarchy_BFS_block(self):
         HM = MixedHierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.BFS,
-            ctype=Block,
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.BFS,
+            descend_into=Block,
         )]
         self.assertEqual(HM.BFS_block, result)
     def test_iterate_mixed_hierarchy_BFS_both(self):
         HM = MixedHierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.BFS,
-            ctype=(Block,DerivedBlock),
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.BFS,
+            descend_into=(Block, DerivedBlock),
         )]
         self.assertEqual(HM.BFS_both, result)
     def test_iterate_mixed_hierarchy_BFS_SubclassOf(self):
         HM = MixedHierarchicalModel()
         m = HM.model
-        result = [x.name for x in m._tree_iterator(
-            traversal=TraversalStrategy.BFS,
-            ctype=SubclassOf(Block),
+        result = [x.name for x in m.block_data_objects(
+            descent_order=TraversalStrategy.BFS,
+            descend_into=SubclassOf(Block),
         )]
         self.assertEqual(HM.BFS_both, result)
         result = [x.name for x in m.component_objects(

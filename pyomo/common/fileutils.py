@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -44,7 +45,7 @@ from . import envvar
 from .deprecation import deprecated, relocated_module_attribute
 
 relocated_module_attribute(
-    'StreamIndenter', 'pyomo.common.formatting', version='TBD')
+    'StreamIndenter', 'pyomo.common.formatting', version='6.2')
 
 def this_file(stack_offset=1):
     """Returns the file name for the module that calls this function.
@@ -67,10 +68,10 @@ def this_file(stack_offset=1):
     return os.path.abspath(inspect.getfile(callerFrame))
 
 
-def this_file_dir():
+def this_file_dir(stack_offset=1):
     """Returns the directory containing the module that calls this function.
     """
-    return os.path.dirname(this_file(stack_offset=2))
+    return os.path.dirname(this_file(stack_offset=1 + stack_offset))
 
 
 PYOMO_ROOT_DIR = os.path.dirname(os.path.dirname(this_file_dir()))
@@ -416,7 +417,7 @@ def find_executable(exename, cwd=True, include_PATH=True, pathlist=None):
                      pathlist=pathlist, allow_pathlist_deep_references=False)
 
 
-def import_file(path, clear_cache=False, infer_package=True):
+def import_file(path, clear_cache=False, infer_package=True, module_name=None):
     """
     Import a module given the full path/filename of the file.
     Replaces import_file from pyutilib (Pyomo 6.0.0).
@@ -435,7 +436,8 @@ def import_file(path, clear_cache=False, infer_package=True):
     if not os.path.exists(path):
         raise FileNotFoundError('File does not exist. Check path.')
     module_dir, module_file = os.path.split(path)
-    module_name, module_ext = os.path.splitext(module_file)
+    if module_name is None:
+        module_name, module_ext = os.path.splitext(module_file)
     if infer_package:
         while module_dir and os.path.exists(
                 os.path.join(module_dir, '__init__.py')):

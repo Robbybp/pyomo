@@ -16,6 +16,8 @@ import time
 from pyomo.common.log import LogStream
 from pyomo.common.config import ConfigValue, NonNegativeInt
 from pyomo.common.errors import PyomoException
+from pyomo.contrib.appsi.cmodel import cmodel_available
+from pyomo.core.staleflag import StaleFlagManager
 
 
 logger = logging.getLogger(__name__)
@@ -55,10 +57,10 @@ class CplexResults(Results):
 class Cplex(PersistentSolver):
     _available = None
 
-    def __init__(self):
+    def __init__(self, only_child_vars=True):
         self._config = CplexConfig()
         self._solver_options = dict()
-        self._writer = LPWriter()
+        self._writer = LPWriter(only_child_vars=only_child_vars)
         self._filename = None
         self._last_results_object: Optional[CplexResults] = None
 
@@ -87,19 +89,24 @@ class Cplex(PersistentSolver):
 
     def _check_license(self):
         if self._cplex_available:
-            try:
-                m = self._cplex.Cplex()
-                m.variables.add(lb=[0]*1001)
-                m.solve()
-                Cplex._available = self.Availability.FullLicense
-            except self._cplex.exceptions.errors.CplexSolverError:
+            if not cmodel_available:
+                Cplex._available = self.Availability.NeedsCompiledExtension
+            else:
                 try:
                     m = self._cplex.Cplex()
-                    m.variables.add(lb=[0])
+                    m.set_results_stream(None)
+                    m.variables.add(lb=[0]*1001)
                     m.solve()
-                    Cplex._available = self.Availability.LimitedLicense
-                except:
-                    Cplex._available = self.Availability.BadLicense
+                    Cplex._available = self.Availability.FullLicense
+                except self._cplex.exceptions.errors.CplexSolverError:
+                    try:
+                        m = self._cplex.Cplex()
+                        m.set_results_stream(None)
+                        m.variables.add(lb=[0])
+                        m.solve()
+                        Cplex._available = self.Availability.LimitedLicense
+                    except:
+                        Cplex._available = self.Availability.BadLicense
         else:
             Cplex._available = self.Availability.NotFound
 
@@ -129,11 +136,13 @@ class Cplex(PersistentSolver):
     @property
     def cplex_options(self):
         """
+        A dictionary mapping solver options to values for those options. These
+        are solver specific.
+
         Returns
         -------
-        cplex_options: dict
-            A dictionary mapping solver options to values for those options. These
-            are solver specific.
+        dict
+            A dictionary mapping solver options to values for those options
         """
         return self._solver_options
 
@@ -182,6 +191,7 @@ class Cplex(PersistentSolver):
         self._writer.update_params()
 
     def solve(self, model, timer: HierarchicalTimer = None):
+        StaleFlagManager.mark_all_as_stale()
         avail = self.available()
         if not avail:
             raise PyomoException(f'Solver {self.__class__} is not available ({avail}).')
@@ -322,7 +332,8 @@ class Cplex(PersistentSolver):
             if name == 'obj_const':
                 continue
             v = symbol_map.bySymbol[name]()
-            res[v] = val
+            if self._writer._referenced_variables[id(v)]:
+                res[v] = val
         return res
 
     def get_duals(self, cons_to_load: Optional[Sequence[_GeneralConstraintData]] = None) -> Dict[_GeneralConstraintData, float]:
@@ -331,7 +342,7 @@ class Cplex(PersistentSolver):
         if self._cplex_model.get_problem_type() in [self._cplex_model.problem_type.MILP,
                                                     self._cplex_model.problem_type.MIQP,
                                                     self._cplex_model.problem_type.MIQCP]:
-            raise RuntimeError('Cannot get get duals for mixed-integer problems')
+            raise RuntimeError('Cannot get duals for mixed-integer problems')
 
         symbol_map = self._writer.symbol_map
 
@@ -371,7 +382,7 @@ class Cplex(PersistentSolver):
         if self._cplex_model.get_problem_type() in [self._cplex_model.problem_type.MILP,
                                                     self._cplex_model.problem_type.MIQP,
                                                     self._cplex_model.problem_type.MIQCP]:
-            raise RuntimeError('Cannot get get reduced costs for mixed-integer problems')
+            raise RuntimeError('Cannot get reduced costs for mixed-integer problems')
 
         symbol_map = self._writer.symbol_map
         if vars_to_load is None:

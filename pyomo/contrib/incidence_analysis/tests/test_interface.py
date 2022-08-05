@@ -1,9 +1,10 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and 
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain 
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
+#  Under the terms of Contract DE-NA0003525 with National Technology and
+#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
@@ -17,16 +18,17 @@ from pyomo.contrib.incidence_analysis.interface import (
     get_structural_incidence_matrix,
     get_numeric_incidence_matrix,
     get_incidence_graph,
-    )
+)
 from pyomo.contrib.incidence_analysis.matching import maximum_matching
 from pyomo.contrib.incidence_analysis.triangularize import block_triangularize
 from pyomo.contrib.incidence_analysis.dulmage_mendelsohn import (
     dulmage_mendelsohn,
-    )
+)
 from pyomo.contrib.incidence_analysis.tests.models_for_testing import (
     make_gas_expansion_model,
     make_degenerate_solid_phase_model,
-        )
+    make_dynamic_model,
+)
 if scipy_available:
     from pyomo.contrib.pynumero.interfaces.pyomo_nlp import PyomoNLP
 if networkx_available:
@@ -64,7 +66,7 @@ class TestGasExpansionNumericIncidenceMatrix(unittest.TestCase):
             model.F[i-1],
             model.rho[i],
             model.rho[i-1],
-            ])) for i in model.streams if i != model.streams.first())
+        ])) for i in model.streams if i != model.streams.first())
         csr_map.update((model.ebal[i], ComponentSet([
             model.F[i],
             model.F[i-1],
@@ -72,18 +74,18 @@ class TestGasExpansionNumericIncidenceMatrix(unittest.TestCase):
             model.rho[i-1],
             model.T[i],
             model.T[i-1],
-            ])) for i in model.streams if i != model.streams.first())
+        ])) for i in model.streams if i != model.streams.first())
         csr_map.update((model.expansion[i], ComponentSet([
             model.rho[i],
             model.rho[i-1],
             model.P[i],
             model.P[i-1],
-            ])) for i in model.streams if i != model.streams.first())
+        ])) for i in model.streams if i != model.streams.first())
         csr_map.update((model.ideal_gas[i], ComponentSet([
             model.P[i],
             model.rho[i],
             model.T[i],
-            ])) for i in model.streams)
+        ])) for i in model.streams)
 
         # Map constraint and variable indices to the values of the derivatives
         # Note that the derivative values calculated here depend on the model's
@@ -113,14 +115,14 @@ class TestGasExpansionNumericIncidenceMatrix(unittest.TestCase):
 
                 j = var_idx_map[model.rho[s]]
                 deriv_lookup[i,j] = pyo.value(
-                        -m.gamma*(m.rho[s]/m.rho[s-1])**(m.gamma-1)/m.rho[s-1]
-                        )
+                    -m.gamma*(m.rho[s]/m.rho[s-1])**(m.gamma-1)/m.rho[s-1]
+                )
 
                 j = var_idx_map[model.rho[s-1]]
                 deriv_lookup[i,j] = pyo.value(
-                        -m.gamma*(m.rho[s]/m.rho[s-1])**(m.gamma-1) *
-                        (-m.rho[s]/m.rho[s-1]**2)
-                        )
+                    -m.gamma*(m.rho[s]/m.rho[s-1])**(m.gamma-1) *
+                    (-m.rho[s]/m.rho[s-1]**2)
+                )
 
                 # Energy balance:
                 i = con_idx_map[m.ebal[s]]
@@ -675,6 +677,47 @@ class TestGasExpansionModelInterfaceClassStructural(unittest.TestCase):
             igraph.block_triangularize(variables, constraints)
         self.assertIn('must be unindexed', str(exc.exception))
 
+    def test_remove(self):
+        model = make_gas_expansion_model()
+        igraph = IncidenceGraphInterface(model)
+
+        n_eqn = len(list(model.component_data_objects(pyo.Constraint)))
+        matching = igraph.maximum_matching()
+        values = ComponentSet(matching.values())
+        self.assertEqual(len(matching), n_eqn)
+        self.assertEqual(len(values), n_eqn)
+
+        variable_set = ComponentSet(igraph.variables)
+        self.assertIn(model.F[0], variable_set)
+        self.assertIn(model.F[2], variable_set)
+        var_dmp, con_dmp = igraph.dulmage_mendelsohn()
+        underconstrained_set = ComponentSet(
+            var_dmp.unmatched + var_dmp.underconstrained
+        )
+        self.assertIn(model.F[0], underconstrained_set)
+        self.assertIn(model.F[2], underconstrained_set)
+
+        N, M = igraph.incidence_matrix.shape
+
+        # Say we know that these variables and constraints should
+        # be matched...
+        vars_to_remove = [model.F[0], model.F[2]]
+        cons_to_remove = (model.mbal[1], model.mbal[2])
+        igraph.remove_nodes(vars_to_remove, cons_to_remove)
+        variable_set = ComponentSet(igraph.variables)
+        self.assertNotIn(model.F[0], variable_set)
+        self.assertNotIn(model.F[2], variable_set)
+        var_dmp, con_dmp = igraph.dulmage_mendelsohn()
+        underconstrained_set = ComponentSet(
+            var_dmp.unmatched + var_dmp.underconstrained
+        )
+        self.assertNotIn(model.F[0], underconstrained_set)
+        self.assertNotIn(model.F[2], underconstrained_set)
+
+        N_new, M_new = igraph.incidence_matrix.shape
+        self.assertEqual(N_new, N - len(cons_to_remove))
+        self.assertEqual(M_new, M - len(vars_to_remove))
+
 
 @unittest.skipUnless(networkx_available, "networkx is not available.")
 @unittest.skipUnless(scipy_available, "scipy is not available.")
@@ -988,6 +1031,115 @@ class TestDulmageMendelsohnInterface(unittest.TestCase):
         for con in con_dmp[0]+con_dmp[1]:
             self.assertIn(con, overconstrained_cons)
 
+    def test_remove(self):
+        m = make_degenerate_solid_phase_model()
+        variables = list(m.component_data_objects(pyo.Var))
+        constraints = list(m.component_data_objects(pyo.Constraint))
+
+        igraph = IncidenceGraphInterface(m)
+        var_dmp, con_dmp = igraph.dulmage_mendelsohn()
+        var_con_set = ComponentSet(igraph.variables + igraph.constraints)
+        underconstrained_set = ComponentSet(
+            var_dmp.unmatched + var_dmp.underconstrained
+        )
+        self.assertIn(m.flow_comp[1], var_con_set)
+        self.assertIn(m.flow_eqn[1], var_con_set)
+        self.assertIn(m.flow_comp[1], underconstrained_set)
+
+        N, M = igraph.incidence_matrix.shape
+
+        # flow_comp[1] is underconstrained, but we think it should be
+        # specified by flow_eqn[1], so we remove these from the incidence
+        # matrix.
+        vars_to_remove = [m.flow_comp[1]]
+        cons_to_remove = [m.flow_eqn[1]]
+        igraph.remove_nodes(vars_to_remove + cons_to_remove)
+        var_dmp, con_dmp = igraph.dulmage_mendelsohn()
+        var_con_set = ComponentSet(igraph.variables + igraph.constraints)
+        underconstrained_set = ComponentSet(
+            var_dmp.unmatched + var_dmp.underconstrained
+        )
+        self.assertNotIn(m.flow_comp[1], var_con_set)
+        self.assertNotIn(m.flow_eqn[1], var_con_set)
+        self.assertNotIn(m.flow_comp[1], underconstrained_set)
+
+        N_new, M_new = igraph.incidence_matrix.shape
+        self.assertEqual(N_new, N - len(cons_to_remove))
+        self.assertEqual(M_new, M - len(vars_to_remove))
+
+
+@unittest.skipUnless(networkx_available, "networkx is not available.")
+@unittest.skipUnless(scipy_available, "scipy is not available.")
+class TestConnectedComponents(unittest.TestCase):
+
+    def test_dynamic_model_backward(self):
+        """
+        This is the same test as performed in the test_connected.py
+        file, now implemented with the Pyomo interface.
+        """
+        m = make_dynamic_model(nfe=5, scheme="BACKWARD")
+        m.height[0].fix()
+        igraph = IncidenceGraphInterface(m)
+        var_blocks, con_blocks = igraph.get_connected_components()
+        vc_blocks = [
+            (tuple(vars), tuple(cons))
+            for vars, cons in zip(var_blocks, con_blocks)
+        ]
+        key_fcn = lambda vc_comps: tuple(
+            tuple(comp.name for comp in comps)
+            for comps in vc_comps
+        )
+        vc_blocks = list(sorted(vc_blocks, key=key_fcn))
+
+        t0_vars = ComponentSet((m.flow_out[0], m.dhdt[0], m.flow_in[0]))
+        t0_cons = ComponentSet((m.flow_out_eqn[0], m.diff_eqn[0]))
+
+        # The variables in these blocks need to be sorted by their coordinates
+        # in the underlying incidence matrix
+        var_idx_map = ComponentMap(
+            (var, i) for i, var in enumerate(igraph.variables)
+        )
+        con_idx_map = ComponentMap(
+            (con, i) for i, con in enumerate(igraph.constraints)
+        )
+        var_key = lambda var: var_idx_map[var]
+        con_key = lambda con: con_idx_map[con]
+        var_blocks = [
+            tuple(sorted(t0_vars, key=var_key)),
+            tuple(sorted(
+                (var for var in igraph.variables if var not in t0_vars),
+                key=var_key,
+            )),
+        ]
+        con_blocks = [
+            tuple(sorted(t0_cons, key=con_key)),
+            tuple(sorted(
+                (con for con in igraph.constraints if con not in t0_cons),
+                key=con_key,
+            )),
+        ]
+        target_blocks = [
+            (tuple(vars), tuple(cons))
+            for vars, cons in zip(var_blocks, con_blocks)
+        ]
+        target_blocks = list(sorted(target_blocks, key=key_fcn))
+
+        # I am somewhat surprised this works. This appears to because
+        # var1 == var2 is a constant equality expression when var1 is var2.
+        # So if this test fails, we'll get a somewhat confusing PyomoException
+        # about not being able to convert non-constant expressions to bool
+        # rather than a message saying that our variables are not the same.
+        #self.assertEqual(target_blocks, vc_blocks)
+        for block, target_block in zip(vc_blocks, target_blocks):
+            vars, cons = block
+            pred_vars, pred_cons = target_block
+            self.assertEqual(len(vars), len(pred_vars))
+            self.assertEqual(len(cons), len(pred_cons))
+            for v1, v2 in zip(vars, pred_vars):
+                self.assertIs(v1, v2)
+            for c1, c2 in zip(cons, pred_cons):
+                self.assertIs(c1, c2)
+
 
 @unittest.skipUnless(networkx_available, "networkx is not available.")
 @unittest.skipUnless(scipy_available, "scipy is not available.")
@@ -1035,6 +1187,55 @@ class TestExceptions(unittest.TestCase):
         nlp = PyomoNLP(m)
         with self.assertRaisesRegex(ValueError, "inactive constraints"):
             igraph = IncidenceGraphInterface(nlp, active=False)
+
+    def test_remove_no_matrix(self):
+        m = pyo.ConcreteModel()
+        m.v1 = pyo.Var()
+        igraph = IncidenceGraphInterface()
+        with self.assertRaisesRegex(RuntimeError, "no incidence matrix"):
+            igraph.remove_nodes([m.v1])
+
+
+@unittest.skipUnless(networkx_available, "networkx is not available.")
+@unittest.skipUnless(scipy_available, "scipy is not available.")
+@unittest.skipUnless(AmplInterface.available(), "pynumero_ASL is not available")
+class TestIncludeInequality(unittest.TestCase):
+    def make_model_with_inequalities(self):
+        m = make_degenerate_solid_phase_model()
+
+        @m.Constraint()
+        def flow_bound(m):
+            return m.flow >= 0
+
+        @m.Constraint(m.components)
+        def flow_comp_bound(m, j):
+            return m.flow_comp[j] >= 0
+
+        return m
+
+    def test_dont_include_inequality_model(self):
+        m = self.make_model_with_inequalities()
+        igraph = IncidenceGraphInterface(m, include_inequality=False)
+        self.assertEqual(igraph.incidence_matrix.shape, (8, 8))
+
+    def test_include_inequality_model(self):
+        m = self.make_model_with_inequalities()
+        igraph = IncidenceGraphInterface(m, include_inequality=True)
+        self.assertEqual(igraph.incidence_matrix.shape, (12, 8))
+
+    def test_dont_include_inequality_nlp(self):
+        m = self.make_model_with_inequalities()
+        m._obj = pyo.Objective(expr=0)
+        nlp = PyomoNLP(m)
+        igraph = IncidenceGraphInterface(nlp, include_inequality=False)
+        self.assertEqual(igraph.incidence_matrix.shape, (8, 8))
+
+    def test_include_inequality_nlp(self):
+        m = self.make_model_with_inequalities()
+        m._obj = pyo.Objective(expr=0)
+        nlp = PyomoNLP(m)
+        igraph = IncidenceGraphInterface(nlp, include_inequality=True)
+        self.assertEqual(igraph.incidence_matrix.shape, (12, 8))
 
 
 if __name__ == "__main__":

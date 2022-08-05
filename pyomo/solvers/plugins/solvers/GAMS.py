@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -1290,7 +1291,7 @@ def check_expr_evaluation(model, symbolMap, solver_io):
         for var in model.component_data_objects(Var):
             if var.value is None:
                 uninit_vars.append(var)
-                var.value = 0
+                var.set_value(0, skip_validation=True)
 
         # Constraints
         for con in model.component_data_objects(Constraint, active=True):
@@ -1306,7 +1307,7 @@ def check_expr_evaluation(model, symbolMap, solver_io):
     finally:
         # Return uninitialized variables to None
         for var in uninit_vars:
-            var.value = None
+            var.set_value(None)
 
 def check_expr(expr, name, solver_io):
     # Check if GAMS will encounter domain violations in presolver

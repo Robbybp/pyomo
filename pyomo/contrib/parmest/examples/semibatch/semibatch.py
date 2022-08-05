@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -14,6 +15,7 @@ erential and
 algebraic equations. Mathematical Programming Computation, 10(2), 187-223.
 """
 import json
+from os.path import join, abspath, dirname
 from pyomo.environ import ConcreteModel, Set, Param, Var, Constraint, ConstraintList, Expression, Objective, TransformationFactory, SolverFactory, exp, minimize
 from pyomo.dae import ContinuousSet, DerivativeVar
 
@@ -206,12 +208,11 @@ def generate_model(data):
     disc.apply_to(m, nfe=20, ncp=4)
     return m
 
-
-if __name__ == '__main__':
-    
+def main():
     # Data loaded from files
-    fname = 'exp2.out'
-    with open(fname,'r') as infile:
+    file_dirname = dirname(abspath(str(__file__)))
+    file_name = abspath(join(file_dirname, 'exp2.out'))
+    with open(file_name,'r') as infile:
         data = json.load(infile)
     data['experiment'] = 2
         
@@ -220,3 +221,7 @@ if __name__ == '__main__':
     solver.solve(model)
     print('k1 = ', model.k1())
     print('E1 = ', model.E1())
+    
+if __name__ == '__main__':
+    main()
+    

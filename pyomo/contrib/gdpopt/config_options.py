@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -130,6 +131,18 @@ def _add_OA_configs(CONFIG):
         "Default=True.",
         domain=bool
     ))
+    CONFIG.declare("max_fbbt_iterations", ConfigValue(
+        default=3,
+        description="Maximum number of feasibility-based bounds tightening "
+        "iterations to do during NLP subproblem preprocessing.",
+        domain=PositiveInt
+    ))
+    CONFIG.declare("tighten_nlp_var_bounds", ConfigValue(
+        default=False,
+        description="Whether or not to do feasibility-based bounds tightening "
+        "on the variables in the NLP subproblem before solving it.",
+        domain=bool
+    ))
     CONFIG.declare("calc_disjunctive_bounds", ConfigValue(
         default=False,
         description="Calculate special disjunctive variable bounds for GLOA. "
@@ -212,7 +225,11 @@ def _add_tolerance_configs(CONFIG):
     ))
     CONFIG.declare("constraint_tolerance", ConfigValue(
         default=1E-6,
-        description="Tolerance on constraint satisfaction."
+        description="""Tolerance on constraint satisfaction.
+
+        Increasing this tolerance corresponds to being more conservative in
+        declaring the model or an NLP subproblem to be infeasible.
+        """
     ))
     CONFIG.declare("variable_tolerance", ConfigValue(
         default=1E-8,

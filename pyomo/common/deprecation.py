@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -58,7 +59,7 @@ def _default_msg(obj, user_msg, version, remove_in):
     if version:
         comment.append('deprecated in %s' % (version,))
     if remove_in:
-        comment.append('will be removed in %s' % (remove_in))
+        comment.append('will be removed in (or after) %s' % (remove_in))
     if comment:
         return user_msg + "  (%s)" % (', '.join(comment),)
     else:

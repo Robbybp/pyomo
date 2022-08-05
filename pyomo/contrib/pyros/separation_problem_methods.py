@@ -111,7 +111,7 @@ def make_separation_problem(model_data, config):
     #Separation problem initialized to nominal uncertain parameter values
     for idx, var in enumerate(list(param_vars.values())):
         param = uncertain_params[idx]
-        var.value = param.value
+        var.set_value(param.value, skip_validation=True)
         substitution_map[id(param)] = var
 
     separation_model.util.new_constraints = constraints = ConstraintList()
@@ -199,7 +199,8 @@ def get_index_of_max_violation(model_data, config, solve_data_list):
         indices_of_violating_realizations.extend(i for i,x in enumerate(solve_data_list) if x[idx_j].found_violation==True)
 
     if matrix_dim == 0:
-        return 0, 0 # Just a dummy index...
+        # no violating realizations
+        return None, None
 
     matrix_of_violations = np.zeros(shape=(matrix_dim, len(model_data.separation_model.util.performance_constraints)))
     violation_dict = {}
@@ -257,9 +258,16 @@ def solve_separation_problem(model_data, config):
     set_of_deterministic_constraints = model_data.separation_model.util.deterministic_constraints
     if hasattr(model_data.separation_model, "epigraph_constr"):
         set_of_deterministic_constraints.add(model_data.separation_model.epigraph_constr)
-    for is_global in (False, True):
-        solver = config.global_solver if \
-            (is_global or config.bypass_local_separation) else config.local_solver
+
+    # Determine whether to solve separation problems globally as well
+    if config.bypass_global_separation:
+        separation_cycle = [False]
+    elif config.bypass_local_separation:
+        separation_cycle = [True]
+    else:
+        separation_cycle = [False, True]
+    for is_global in separation_cycle:
+        solver = config.global_solver if is_global else config.local_solver
         solve_data_list = []
 
         for val in sorted_unique_priorities:
@@ -304,7 +312,7 @@ def solve_separation_problem(model_data, config):
                     solve_data_list.append([solve_data])
 
                 # === Keep track of total solve times
-                if is_global or config.bypass_local_separation:
+                if is_global:
                     if config.uncertainty_set.geometry == Geometry.DISCRETE_SCENARIOS:
                         for sublist in solve_data_list:
                             for s in sublist:
@@ -325,12 +333,19 @@ def solve_separation_problem(model_data, config):
                 separation_obj.deactivate()
 
         # Do we return?
-        # If their are multiple violations in this bucket, pick the worst-case
-        idx_i, idx_j = get_index_of_max_violation(model_data=model_data, config=config,
-                                                              solve_data_list=solve_data_list)
+        # If there are multiple violations in this bucket, pick the worst-case
+        idx_i, idx_j = get_index_of_max_violation(
+            model_data=model_data,
+            config=config,
+            solve_data_list=solve_data_list,
+        )
 
-        violating_realizations = [v for v in solve_data_list[idx_i][idx_j].violating_param_realization]
-        violations = solve_data_list[idx_i][idx_j].list_of_scaled_violations
+        if (idx_i, idx_j) != (None, None):
+            violating_realizations = [v for v in solve_data_list[idx_i][idx_j].violating_param_realization]
+            violations = solve_data_list[idx_i][idx_j].list_of_scaled_violations
+        else:
+            violating_realizations = []
+            violations = []
 
         if any(s.found_violation for solve_list in solve_data_list for s in solve_list):
             #config.progress_logger.info(
@@ -384,12 +399,13 @@ def initialize_separation(model_data, config):
     """
     if config.uncertainty_set.geometry != Geometry.DISCRETE_SCENARIOS:
         for idx, p in list(model_data.separation_model.util.uncertain_param_vars.items()):
-            p.value = config.nominal_uncertain_param_vals[idx]
+            p.set_value(config.nominal_uncertain_param_vals[idx],
+                        skip_validation=True)
     for idx, v in enumerate(model_data.separation_model.util.first_stage_variables):
         v.fix(model_data.opt_fsv_vals[idx])
 
     for idx, c in enumerate(model_data.separation_model.util.second_stage_variables):
-        c.value = model_data.opt_ssv_vals[idx]
+        c.set_value(model_data.opt_ssv_vals[idx], skip_validation=True)
 
     for c in model_data.separation_model.util.second_stage_variables:
         if config.decision_rule_order != 0:
@@ -416,7 +432,7 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
     """
     save_dir = config.subproblem_file_directory
 
-    if is_global or config.bypass_local_separation:
+    if is_global:
         backup_solvers = deepcopy(config.backup_global_solvers)
     else:
         backup_solvers = deepcopy(config.backup_local_solvers)

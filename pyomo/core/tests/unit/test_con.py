@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -1123,6 +1124,14 @@ class TestConList(unittest.TestCase):
 
         self.assertEqual(len(model.c),0)
 
+    def test_0based_add(self):
+        m = ConcreteModel()
+        m.x = Var()
+        m.c = ConstraintList(starting_index=0)
+        m.c.add(m.x <= 0)
+        self.assertEqual(list(m.c.keys()), [0])
+        m.c.add(m.x >= 0)
+        self.assertEqual(list(m.c.keys()), [0, 1])
 
 class Test2DArrayCon(unittest.TestCase):
 

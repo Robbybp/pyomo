@@ -1,13 +1,15 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
 from pyomo.common.modeling import NoArgumentGiven
+from pyomo.core.staleflag import StaleFlagManager
 from pyomo.core.expr.numvalue import (NumericValue,
                                       is_numeric_data,
                                       value)
@@ -343,7 +345,7 @@ class variable(IVariable):
         self._ub = ub
         self._value = value
         self._fixed = fixed
-        self._stale = True
+        self._stale = 0 # True
         if (domain_type is not None) or \
            (domain is not None):
             self._domain_type, self._lb, self._ub = \
@@ -384,6 +386,10 @@ class variable(IVariable):
     @value.setter
     def value(self, value):
         self._value = value
+        self._stale = StaleFlagManager.get_flag(self._stale)
+
+    def set_value(self, value, skip_validation=True):
+        self.value = value
 
     @property
     def fixed(self):
@@ -396,10 +402,13 @@ class variable(IVariable):
     @property
     def stale(self):
         """The stale status of the variable"""
-        return self._stale
+        return StaleFlagManager.is_stale(self._stale)
     @stale.setter
     def stale(self, stale):
-        self._stale = stale
+        if stale:
+            self._stale = 0
+        else:
+            self._stale = StaleFlagManager.get_flag(0)
 
     @property
     def domain_type(self):

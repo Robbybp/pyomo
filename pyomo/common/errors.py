@@ -1,9 +1,10 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and 
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain 
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
+#  Under the terms of Contract DE-NA0003525 with National Technology and
+#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
@@ -43,6 +44,13 @@ class DeveloperError(PyomoException, NotImplementedError):
                  % ( repr(self.parameter), ) )
 
 
+class IntervalException(PyomoException, ValueError):
+    """
+    Exception class used for errors in interval arithmetic.
+    """
+    pass
+
+
 class InfeasibleConstraintException(PyomoException):
     """
     Exception class used by Pyomo transformations to indicate
@@ -54,4 +62,11 @@ class InfeasibleConstraintException(PyomoException):
 
 class NondifferentiableError(PyomoException, ValueError):
     """A Pyomo-specific ValueError raised for non-differentiable expressions"""
+    pass
+
+class TempfileContextError(PyomoException, IndexError):
+    """A Pyomo-specific IndexError raised when attempting to use the
+    TempfileManager when it does not have a currently active context.
+
+    """
     pass

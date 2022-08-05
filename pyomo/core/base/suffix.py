@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -13,6 +14,7 @@ __all__ = ('Suffix',
            'active_import_suffix_generator')
 
 import logging
+from pyomo.common.pyomo_typing import overload
 
 from pyomo.common.collections import ComponentMap
 from pyomo.common.log import is_debug_set
@@ -167,6 +169,10 @@ class Suffix(ComponentMap, ActiveComponent):
     SuffixDatatypeToStr = {FLOAT: 'Suffix.FLOAT',
                            INT: 'Suffix.INT',
                            None: str(None)}
+
+    @overload
+    def __init__(self, *, direction=LOCAL, datatype=FLOAT,
+                 initialize=None, rule=None, name=None, doc=None): ...
 
     def __init__(self, **kwds):
 

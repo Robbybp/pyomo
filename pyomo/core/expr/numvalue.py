@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -17,6 +18,7 @@ import sys
 import logging
 
 from pyomo.common.dependencies import numpy as np, numpy_available
+from pyomo.common.errors import PyomoException
 from pyomo.core.expr.expr_common import (
     _add, _sub, _mul, _div, _pow,
     _neg, _abs, _radd,
@@ -115,7 +117,7 @@ def value(obj, exception=True):
     # Test if we have a duck types for Pyomo expressions
     #
     try:
-        obj.is_expression_type()
+        obj.is_numeric_type()
     except AttributeError:
         #
         # If not, then try to coerce this into a numeric constant.  If that
@@ -135,7 +137,6 @@ def value(obj, exception=True):
         #
         # Here, we try to catch the exception
         #
-
         try:
             tmp = obj(exception=True)
             if tmp is None:
@@ -255,7 +256,7 @@ def is_numeric_data(obj):
         # this likely means it is a string
         return False
     try:
-        # Test if this is an expression object that 
+        # Test if this is an expression object that
         # is not potentially variable
         return not obj.is_potentially_variable()
     except AttributeError:
@@ -328,7 +329,7 @@ def as_numeric(obj):
     Args:
         obj: The numeric value that may be wrapped.
 
-    Raises: TypeError if the object is in native_types and not in 
+    Raises: TypeError if the object is in native_types and not in
         native_numeric_types
 
     Returns: A NumericConstant object or the original object.
@@ -336,7 +337,7 @@ def as_numeric(obj):
     if obj.__class__ in native_numeric_types:
         val = _KnownConstants.get(obj, None)
         if val is not None:
-            return val 
+            return val
         #
         # Coerce the value to a float, if possible
         #
@@ -365,11 +366,20 @@ def as_numeric(obj):
         #
         return retval
     #
-    # Ignore objects that are duck types to work with Pyomo expressions
+    # Ignore objects that are duck typed to work with Pyomo expressions
     #
     try:
-        obj.is_expression_type()
-        return obj
+        if obj.is_numeric_type():
+            return obj
+        else:
+            try:
+                _name = obj.name
+            except AttributeError:
+                _name = str(obj)
+            raise TypeError(
+                "The '%s' object '%s' is not a valid type for Pyomo "
+                "numeric expressions" % (type(obj).__name__, _name))
+
     except AttributeError:
         pass
     #
@@ -384,10 +394,11 @@ def as_numeric(obj):
     # Generate errors
     #
     if obj.__class__ in native_types:
-        raise TypeError("Cannot treat the value '%s' as a constant" % str(obj))
+        raise TypeError("%s values ('%s') are not allowed in Pyomo "
+                        "numeric expressions" % (type(obj).__name__, str(obj)))
     raise TypeError(
-        "Cannot treat the value '%s' as a constant because it has unknown "
-        "type '%s'" % (str(obj), type(obj).__name__))
+        "Cannot treat the value '%s' as a numeric value because it has "
+        "unknown type '%s'" % (str(obj), type(obj).__name__))
 
 
 def check_if_numeric_type_and_cache(obj):
@@ -413,7 +424,7 @@ def check_if_numeric_type_and_cache(obj):
         retval = NumericConstant(obj)
         try:
             #
-            # Create the numeric constant and add to the 
+            # Create the numeric constant and add to the
             # list of known constants.
             #
             # Note: we don't worry about the size of the
@@ -572,40 +583,80 @@ class NumericValue(PyomoObject):
         """
         return None
 
-    def __float__(self):
+    def __bool__(self):
+        """Coerce the value to a bool
+
+        Numeric values can be coerced to bool only if the value /
+        expression is constant.  Fixed (but non-constant) or variable
+        values will raise an exception.
+
+        Raises:
+            PyomoException
+
         """
-        Coerce the value to a floating point
+        # Note that we want to implement __bool__, as scalar numeric
+        # components (e.g., Param, Var) implement __len__ (since they
+        # are implicit containers), and Python falls back on __len__ if
+        # __bool__ is not defined.
+        if self.is_constant():
+            return bool(self())
+        raise PyomoException("""
+Cannot convert non-constant Pyomo numeric value (%s) to bool.
+This error is usually caused by using a Var, unit, or mutable Param in a
+Boolean context such as an "if" statement. For example,
+    >>> m.x = Var()
+    >>> if not m.x:
+    ...     pass
+would cause this exception.""".strip() % (self,))
+
+    def __float__(self):
+        """Coerce the value to a floating point
+
+        Numeric values can be coerced to float only if the value /
+        expression is constant.  Fixed (but non-constant) or variable
+        values will raise an exception.
 
         Raises:
             TypeError
+
         """
-        raise TypeError(
-"""Implicit conversion of Pyomo NumericValue type `%s' to a float is
-disabled. This error is often the result of using Pyomo components as
-arguments to one of the Python built-in math module functions when
-defining expressions. Avoid this error by using Pyomo-provided math
-functions.""" % (self.name,))
+        if self.is_constant():
+            return float(self())
+        raise TypeError("""
+Implicit conversion of Pyomo numeric value (%s) to float is disabled.
+This error is often the result of using Pyomo components as arguments to
+one of the Python built-in math module functions when defining
+expressions. Avoid this error by using Pyomo-provided math functions or
+explicitly resolving the numeric value using the Pyomo value() function.
+""".strip() % (self,))
 
     def __int__(self):
-        """
-        Coerce the value to an integer
+        """Coerce the value to an integer
+
+        Numeric values can be coerced to int only if the value /
+        expression is constant.  Fixed (but non-constant) or variable
+        values will raise an exception.
 
         Raises:
             TypeError
+
         """
-        raise TypeError(
-"""Implicit conversion of Pyomo NumericValue type `%s' to an integer is
-disabled. This error is often the result of using Pyomo components as
-arguments to one of the Python built-in math module functions when
-defining expressions. Avoid this error by using Pyomo-provided math
-functions.""" % (self.name,))
+        if self.is_constant():
+            return int(self())
+        raise TypeError("""
+Implicit conversion of Pyomo numeric value (%s) to int is disabled.
+This error is often the result of using Pyomo components as arguments to
+one of the Python built-in math module functions when defining
+expressions. Avoid this error by using Pyomo-provided math functions or
+explicitly resolving the numeric value using the Pyomo value() function.
+""".strip() % (self,))
 
     def __lt__(self,other):
         """
         Less than operator
 
         This method is called when Python processes statements of the form::
-        
+
             self < other
             other > self
         """
@@ -616,7 +667,7 @@ functions.""" % (self.name,))
         Greater than operator
 
         This method is called when Python processes statements of the form::
-        
+
             self > other
             other < self
         """
@@ -627,7 +678,7 @@ functions.""" % (self.name,))
         Less than or equal operator
 
         This method is called when Python processes statements of the form::
-        
+
             self <= other
             other >= self
         """
@@ -638,7 +689,7 @@ functions.""" % (self.name,))
         Greater than or equal operator
 
         This method is called when Python processes statements of the form::
-        
+
             self >= other
             other <= self
         """
@@ -649,7 +700,7 @@ functions.""" % (self.name,))
         Equal to operator
 
         This method is called when Python processes the statement::
-        
+
             self == other
         """
         return _generate_relational_expression(_eq, self, other)
@@ -659,7 +710,7 @@ functions.""" % (self.name,))
         Binary addition
 
         This method is called when Python processes the statement::
-        
+
             self + other
         """
         return _generate_sum_expression(_add,self,other)
@@ -669,7 +720,7 @@ functions.""" % (self.name,))
         Binary subtraction
 
         This method is called when Python processes the statement::
-        
+
             self - other
         """
         return _generate_sum_expression(_sub,self,other)
@@ -679,7 +730,7 @@ functions.""" % (self.name,))
         Binary multiplication
 
         This method is called when Python processes the statement::
-        
+
             self * other
         """
         return _generate_mul_expression(_mul,self,other)
@@ -689,7 +740,7 @@ functions.""" % (self.name,))
         Binary division
 
         This method is called when Python processes the statement::
-        
+
             self / other
         """
         return _generate_mul_expression(_div,self,other)
@@ -699,7 +750,7 @@ functions.""" % (self.name,))
         Binary division (when __future__.division is in effect)
 
         This method is called when Python processes the statement::
-        
+
             self / other
         """
         return _generate_mul_expression(_div,self,other)
@@ -709,7 +760,7 @@ functions.""" % (self.name,))
         Binary power
 
         This method is called when Python processes the statement::
-        
+
             self ** other
         """
         return _generate_other_expression(_pow,self,other)
@@ -719,7 +770,7 @@ functions.""" % (self.name,))
         Binary addition
 
         This method is called when Python processes the statement::
-        
+
             other + self
         """
         return _generate_sum_expression(_radd,self,other)
@@ -729,7 +780,7 @@ functions.""" % (self.name,))
         Binary subtraction
 
         This method is called when Python processes the statement::
-        
+
             other - self
         """
         return _generate_sum_expression(_rsub,self,other)
@@ -739,7 +790,7 @@ functions.""" % (self.name,))
         Binary multiplication
 
         This method is called when Python processes the statement::
-        
+
             other * self
 
         when other is not a :class:`NumericValue <pyomo.core.expr.numvalue.NumericValue>` object.
@@ -750,7 +801,7 @@ functions.""" % (self.name,))
         """Binary division
 
         This method is called when Python processes the statement::
-        
+
             other / self
         """
         return _generate_mul_expression(_rdiv,self,other)
@@ -760,7 +811,7 @@ functions.""" % (self.name,))
         Binary division (when __future__.division is in effect)
 
         This method is called when Python processes the statement::
-        
+
             other / self
         """
         return _generate_mul_expression(_rdiv,self,other)
@@ -770,7 +821,7 @@ functions.""" % (self.name,))
         Binary power
 
         This method is called when Python processes the statement::
-        
+
             other ** self
         """
         return _generate_other_expression(_rpow,self,other)
@@ -780,7 +831,7 @@ functions.""" % (self.name,))
         Binary addition
 
         This method is called when Python processes the statement::
-        
+
             self += other
         """
         return _generate_sum_expression(_iadd,self,other)
@@ -810,7 +861,7 @@ functions.""" % (self.name,))
         Binary division
 
         This method is called when Python processes the statement::
-        
+
             self /= other
         """
         return _generate_mul_expression(_idiv,self,other)
@@ -820,7 +871,7 @@ functions.""" % (self.name,))
         Binary division (when __future__.division is in effect)
 
         This method is called when Python processes the statement::
-        
+
             self /= other
         """
         return _generate_mul_expression(_idiv,self,other)
@@ -830,7 +881,7 @@ functions.""" % (self.name,))
         Binary power
 
         This method is called when Python processes the statement::
-        
+
             self **= other
         """
         return _generate_other_expression(_ipow,self,other)
@@ -840,7 +891,7 @@ functions.""" % (self.name,))
         Negation
 
         This method is called when Python processes the statement::
-        
+
             - self
         """
         return _generate_sum_expression(_neg, self, None)
@@ -850,7 +901,7 @@ functions.""" % (self.name,))
         Positive expression
 
         This method is called when Python processes the statement::
-        
+
             + self
         """
         return self
@@ -859,7 +910,7 @@ functions.""" % (self.name,))
         """ Absolute value
 
         This method is called when Python processes the statement::
-        
+
             abs(self)
         """
         return _generate_other_expression(_abs,self, None)
@@ -870,25 +921,32 @@ functions.""" % (self.name,))
 
     def to_string(self, verbose=None, labeler=None, smap=None,
                   compute_values=False):
-        """
-        Return a string representation of the expression tree.
+        """Return a string representation of the expression tree.
 
         Args:
-            verbose (bool): If :const:`True`, then the the string 
+            verbose (bool): If :const:`True`, then the string
                 representation consists of nested functions.  Otherwise,
-                the string representation is an algebraic equation.
+                the string representation is an infix algebraic equation.
                 Defaults to :const:`False`.
-            labeler: An object that generates string labels for 
-                variables in the expression tree.  Defaults to :const:`None`.
+            labeler: An object that generates string labels for
+                non-constant in the expression tree.  Defaults to
+                :const:`None`.
+            smap: A SymbolMap instance that stores string labels for
+                non-constant nodes in the expression tree.  Defaults to
+                :const:`None`.
+            compute_values (bool): If :const:`True`, then fixed
+                expressions are evaluated and the string representation
+                of the resulting value is returned.
 
         Returns:
             A string representation for the expression tree.
+
         """
         if compute_values and self.is_fixed():
             try:
                 return str(self())
             except:
-                pass        
+                pass
         if not self.is_constant():
             if smap is not None:
                 return smap.getSymbol(self, labeler)
@@ -926,16 +984,6 @@ class NumericConstant(NumericValue):
 
     def __str__(self):
         return str(self.value)
-
-    def __nonzero__(self):
-        """Return True if the value is defined and non-zero"""
-        if self.value:
-            return True
-        if self.value is None:
-            raise ValueError("Numeric Constant: value is undefined")
-        return False
-
-    __bool__ = __nonzero__
 
     def __call__(self, exception=True):
         """Return the constant value"""

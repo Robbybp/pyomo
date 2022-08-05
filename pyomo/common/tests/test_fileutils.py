@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -133,6 +134,7 @@ class TestFileUtils(unittest.TestCase):
         subdir_name = 'aaa'
         subdir = os.path.join(self.tmpdir, subdir_name)
         os.mkdir(subdir)
+        # CWD restored in tearDown
         os.chdir(self.tmpdir)
 
         fname = 'foo.py'
@@ -205,10 +207,10 @@ class TestFileUtils(unittest.TestCase):
             os.path.join(subdir,subdir_name)
         )
 
-    def test_find_library(self):
-        self.tmpdir = os.path.abspath(tempfile.mkdtemp())
-        os.chdir(self.tmpdir)
-
+    @unittest.skipIf(sys.version_info[:2] < (3, 8)
+                     and platform.mac_ver()[0].startswith('10.16'),
+                     "find_library has known bugs in Big Sur for Python<3.8")
+    def test_find_library_system(self):
         # Find a system library (before we muck with the PATH)
         _args = {'cwd':False, 'include_PATH':False, 'pathlist':[]}
         if FileDownloader.get_sysinfo()[0] == 'windows':
@@ -229,6 +231,11 @@ class TestFileUtils(unittest.TestCase):
         # file, so only check one)
         _lib = ctypes.cdll.LoadLibrary(a)
         self.assertIsNotNone(_lib)
+
+    def test_find_library_user(self):
+        self.tmpdir = os.path.abspath(tempfile.mkdtemp())
+        # CWD restored in tearDown
+        os.chdir(self.tmpdir)
 
         envvar.PYOMO_CONFIG_DIR = self.tmpdir
         config_libdir = os.path.join(self.tmpdir, 'lib')
@@ -325,6 +332,7 @@ class TestFileUtils(unittest.TestCase):
 
     def test_find_executable(self):
         self.tmpdir = os.path.abspath(tempfile.mkdtemp())
+        # CWD restored in tearDown
         os.chdir(self.tmpdir)
 
         envvar.PYOMO_CONFIG_DIR = self.tmpdir
@@ -442,7 +450,7 @@ class TestFileUtils(unittest.TestCase):
         self._check_file( Executable(f_in_path).executable,
                           os.path.join(pathdir, f_in_path) )
 
-        # Test the above for a nonexistant file
+        # Test the above for a nonexistent file
         self.assertFalse( Executable(f_in_tmp).available() )
         if Executable(f_in_tmp):
             self.fail("Expected casting Executable(f_in_tmp) to bool=False")

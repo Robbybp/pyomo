@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -38,7 +39,7 @@ class TestDeprecated(unittest.TestCase):
 
         self.assertIn('DEPRECATED: This has been deprecated',
                       DEP_OUT.getvalue())
-        self.assertIn('(deprecated in 1.2, will be removed in 3.4)',
+        self.assertIn('(deprecated in 1.2, will be removed in (or after) 3.4)',
                       DEP_OUT.getvalue().replace('\n',' '))
 
         DEP_OUT = StringIO()
@@ -47,7 +48,7 @@ class TestDeprecated(unittest.TestCase):
 
         self.assertIn('DEPRECATED: custom message here',
                       DEP_OUT.getvalue())
-        self.assertIn('(deprecated in 1.2, will be removed in 3.4)',
+        self.assertIn('(deprecated in 1.2, will be removed in (or after) 3.4)',
                       DEP_OUT.getvalue().replace('\n',' '))
 
 
@@ -305,7 +306,7 @@ class TestDeprecated(unittest.TestCase):
         self.assertIn(
             '.. deprecated:: 1.2\n   This function has been deprecated',
             foo.bar.__doc__)
-        self.assertIn('(will be removed in 3.4)',
+        self.assertIn('(will be removed in (or after) 3.4)',
                       foo.bar.__doc__.replace('\n',' '))
 
         # Test the default argument
@@ -320,8 +321,8 @@ class TestDeprecated(unittest.TestCase):
         # Test that the deprecation warning was logged
         self.assertIn('DEPRECATED: This function has been deprecated',
                       DEP_OUT.getvalue())
-        self.assertIn('(deprecated in 1.2, will be removed in 3.4)',
-                      DEP_OUT.getvalue())
+        self.assertIn('(deprecated in 1.2, will be removed in (or after) 3.4)',
+                      DEP_OUT.getvalue().replace('\n', ' '))
 
 
 class Bar(object):

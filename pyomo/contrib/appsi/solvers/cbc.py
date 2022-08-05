@@ -20,6 +20,8 @@ import sys
 from typing import Dict
 from pyomo.common.config import ConfigValue, NonNegativeInt
 from pyomo.common.errors import PyomoException
+from pyomo.contrib.appsi.cmodel import cmodel_available
+from pyomo.core.staleflag import StaleFlagManager
 
 
 logger = logging.getLogger(__name__)
@@ -52,10 +54,10 @@ class CbcConfig(SolverConfig):
 
 
 class Cbc(PersistentSolver):
-    def __init__(self):
+    def __init__(self, only_child_vars=True):
         self._config = CbcConfig()
         self._solver_options = dict()
-        self._writer = LPWriter()
+        self._writer = LPWriter(only_child_vars=only_child_vars)
         self._filename = None
         self._dual_sol = dict()
         self._primal_sol = dict()
@@ -65,11 +67,13 @@ class Cbc(PersistentSolver):
     def available(self):
         if self.config.executable.path() is None:
             return self.Availability.NotFound
+        elif not cmodel_available:
+            return self.Availability.NeedsCompiledExtension
         return self.Availability.FullLicense
 
     def version(self):
         results = subprocess.run([str(self.config.executable), '-stop'],
-                                 timeout=1,
+                                 timeout=5,
                                  stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT,
                                  universal_newlines=True)
@@ -108,11 +112,13 @@ class Cbc(PersistentSolver):
     @property
     def cbc_options(self):
         """
+        A dictionary mapping solver options to values for those options. These
+        are solver specific.
+
         Returns
         -------
-        cbc_options: dict
-            A dictionary mapping solver options to values for those options. These
-            are solver specific.
+        dict
+            A dictionary mapping solver options to values for those options
         """
         return self._solver_options
 
@@ -169,6 +175,7 @@ class Cbc(PersistentSolver):
         self._writer.update_params()
 
     def solve(self, model, timer: HierarchicalTimer = None):
+        StaleFlagManager.mark_all_as_stale()
         avail = self.available()
         if not avail:
             raise PyomoException(f'Solver {self.__class__} is not available ({avail}).')
@@ -278,7 +285,8 @@ class Cbc(PersistentSolver):
         if (self.version() < (2, 10, 2) and
                 self._writer.get_active_objective() is not None and
                 self._writer.get_active_objective().sense == maximize):
-            obj_val = -obj_val
+            if obj_val is not None:
+                obj_val = -obj_val
             for con, dual_val in self._dual_sol.items():
                 self._dual_sol[con] = -dual_val
             for v_id, (v, rc_val) in self._reduced_costs.items():
@@ -286,7 +294,7 @@ class Cbc(PersistentSolver):
 
         if results.termination_condition == TerminationCondition.optimal and self.config.load_solution:
             for v_id, (v, val) in self._primal_sol.items():
-                v.value = val
+                v.set_value(val, skip_validation=True)
             if self._writer.get_active_objective() is None:
                 results.best_feasible_objective = None
             else:
@@ -341,7 +349,7 @@ class Cbc(PersistentSolver):
             cmd.extend(['-timeMode', 'elapsed'])
         for key, val in _check_and_escape_options():
             if val.strip() != '':
-                cmd.append('-'+key, val)
+                cmd.extend(['-'+key, val])
             else:
                 action_options.append('-'+key)
         cmd.extend(['-printingOptions', 'all'])

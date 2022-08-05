@@ -3,7 +3,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -12,21 +13,43 @@
 
 """Implementation of the MindtPy solver.
 
-The MindtPy (MINLP Decomposition Toolkit) solver applies a variety of
-decomposition-based approaches to solve nonlinear continuous-discrete problems.
-These approaches include:
+22.2.10 changes:
+- Add support for partitioning nonlinear-sum objective.
 
-- Outer approximation
-- Benders decomposition [pending]
-- Partial surrogate cuts [pending]
-- Extended cutting plane [pending]
+22.1.12 changes:
+- Improve the log.
 
-This solver implementation was developed by Carnegie Mellon University in the
-research group of Ignacio Grossmann.
+21.12.15 changes:
+- Improve the online doc.
 
-For nonconvex problems, the bounds solve_data.LB and solve_data.UB may not be
-rigorous. Questions: Please make a post at StackOverflow and/or David Bernal
-<https://github.com/bernalde>
+21.11.10 changes:
+- Add support for solution pool of MIP solvers.
+
+21.8.21 changes:
+- Add support for gurobi_persistent solver in (Regularized) LP/NLP-based B&B algorithm.
+
+21.5.19 changes:
+- Add Feasibility Pump strategy.
+- Add Regularized Outer Approximation method.
+- Restructure and simplify the MindyPy code.
+
+20.10.15 changes:
+- Add Extended Cutting Plane and Global Outer Approximation strategy.
+- Update online doc.
+
+20.6.30 changes:
+- Add support for different norms (L1, L2, L-infinity) of the objective function in the feasibility subproblem.
+- Add support for different differentiate_mode to calculate Jacobian.
+
+20.6.9 changes:
+- Add cycling check in Outer Approximation method.
+- Add support for GAMS solvers interface.
+- Fix warmstart for both OA and LP/NLP method.
+
+20.5.9 changes:
+- Add single-tree implementation.
+- Add support for cplex_persistent solver.
+- Fix bug in OA cut expression in cut_generation.py.
 
 """
 from __future__ import division
@@ -35,13 +58,13 @@ from pyomo.contrib.gdpopt.util import (copy_var_list_values, create_utility_bloc
                                        time_code, setup_results_object, process_objective, lower_logger_level_to)
 from pyomo.contrib.mindtpy.initialization import MindtPy_initialize_main
 from pyomo.contrib.mindtpy.iterate import MindtPy_iteration_loop
-from pyomo.contrib.mindtpy.util import model_is_valid, setup_solve_data
+from pyomo.contrib.mindtpy.util import model_is_valid, set_up_solve_data, set_up_logger, get_primal_integral, get_dual_integral
 from pyomo.core import (Block, ConstraintList, NonNegativeReals,
-                        Set, Suffix, Var, VarList, TransformationFactory, Objective, RangeSet)
+                        Var, VarList, TransformationFactory, RangeSet, minimize, Constraint, Objective)
 from pyomo.opt import SolverFactory
 from pyomo.contrib.mindtpy.config_options import _get_MindtPy_config, check_config
-
-logger = logging.getLogger('pyomo.contrib.mindtpy')
+from pyomo.common.config import add_docstring_list
+from pyomo.util.vars_from_expressions import get_vars_from_components
 
 __version__ = (0, 1, 0)
 
@@ -50,7 +73,26 @@ __version__ = (0, 1, 0)
     'mindtpy',
     doc='MindtPy: Mixed-Integer Nonlinear Decomposition Toolbox in Pyomo')
 class MindtPySolver(object):
-    """A decomposition-based MINLP solver.
+    """
+    Decomposition solver for Mixed-Integer Nonlinear Programming (MINLP) problems.
+
+    The MindtPy (Mixed-Integer Nonlinear Decomposition Toolbox in Pyomo) solver 
+    applies a variety of decomposition-based approaches to solve Mixed-Integer 
+    Nonlinear Programming (MINLP) problems. 
+    These approaches include:
+
+    - Outer approximation (OA)
+    - Global outer approximation (GOA)
+    - Regularized outer approximation (ROA)
+    - LP/NLP based branch-and-bound (LP/NLP)
+    - Global LP/NLP based branch-and-bound (GLP/NLP)
+    - Regularized LP/NLP based branch-and-bound (RLP/NLP)
+    - Feasibility pump (FP)
+
+    This solver implementation has been developed by David Bernal <https://github.com/bernalde>
+    and Zedong Peng <https://github.com/ZedongPeng> as part of research efforts at the Grossmann
+    Research Group (http://egon.cheme.cmu.edu/) at the Department of Chemical Engineering at 
+    Carnegie Mellon University.
     """
     CONFIG = _get_MindtPy_config()
 
@@ -69,39 +111,63 @@ class MindtPySolver(object):
     def solve(self, model, **kwds):
         """Solve the model.
 
-        Warning: this solver is still in beta. Keyword arguments subject to
-        change. Undocumented keyword arguments definitely subject to change.
+        Parameters
+        ----------
+        model : Pyomo model
+            The MINLP model to be solved.
 
-        Args:
-            model (Block): a Pyomo model or block to be solved
+        Returns
+        -------
+        results : SolverResults
+            Results from solving the MINLP problem by MindtPy.
         """
-        config = self.CONFIG(kwds.pop('options', {}))
+        config = self.CONFIG(kwds.pop('options', {
+        }), preserve_implicit=True)  # TODO: do we need to set preserve_implicit=True?
         config.set_value(kwds)
-        check_config(config)
+        set_up_logger(config)
+        new_logging_level = logging.INFO if config.tee else None
+        with lower_logger_level_to(config.logger, new_logging_level):
+            check_config(config)
 
-        solve_data = setup_solve_data(model, config)
+        solve_data = set_up_solve_data(model, config)
 
         if config.integer_to_binary:
             TransformationFactory('contrib.integer_to_binary'). \
                 apply_to(solve_data.working_model)
 
-        new_logging_level = logging.INFO if config.tee else None
         with time_code(solve_data.timing, 'total', is_main_timer=True), \
                 lower_logger_level_to(config.logger, new_logging_level), \
                 create_utility_block(solve_data.working_model, 'MindtPy_utils', solve_data):
-            config.logger.info('---Starting MindtPy---')
+            config.logger.info(
+                '---------------------------------------------------------------------------------------------\n'
+                '              Mixed-Integer Nonlinear Decomposition Toolbox in Pyomo (MindtPy)               \n'
+                '---------------------------------------------------------------------------------------------\n'
+                'For more information, please visit https://pyomo.readthedocs.io/en/stable/contributed_packages/mindtpy.html')
 
             MindtPy = solve_data.working_model.MindtPy_utils
             setup_results_object(solve_data, config)
+            # In the process_objective function, as long as the objective function is nonlinear, it will be reformulated and the variable/constraint/objective lists will be updated.
+            # For OA/GOA/LP-NLP algorithm, if the objective funtion is linear, it will not be reformulated as epigraph constraint.
+            # If the objective function is linear, it will be reformulated as epigraph constraint only if the Feasibility Pump or ROA/RLP-NLP algorithm is activated. (move_objective = True)
+            # In some cases, the variable/constraint/objective lists will not be updated even if the objective is epigraph-reformulated.
+            # In Feasibility Pump, since the distance calculation only includes discrete variables and the epigraph slack variables are continuous variables, the Feasibility Pump algorithm will not affected even if the variable list are updated.
+            # In ROA and RLP/NLP, since the distance calculation does not include these epigraph slack variables, they should not be added to the variable list. (update_var_con_list = False)
+            # In the process_objective function, once the objective function has been reformulated as epigraph constraint, the variable/constraint/objective lists will not be updated only if the MINLP has a linear objective function and regularization is activated at the same time.
+            # This is because the epigraph constraint is very "flat" for branching rules. The original objective function will be used for the main problem and epigraph reformulation will be used for the projection problem.
+            # TODO: The logic here is too complicated, can we simplify it?
             process_objective(solve_data, config,
-                              move_linear_objective=(config.init_strategy == 'FP'
-                                                     or config.add_regularization is not None),
+                              move_objective=(config.init_strategy == 'FP'
+                                                     or config.add_regularization is not None
+                                                     or config.move_objective),
                               use_mcpp=config.use_mcpp,
-                              updata_var_con_list=config.add_regularization is None
+                              update_var_con_list=config.add_regularization is None,
+                              partition_nonlinear_terms=config.partition_obj_nonlinear_terms,
+                              obj_handleable_polynomial_degree=solve_data.mip_objective_polynomial_degree,
+                              constr_handleable_polynomial_degree=solve_data.mip_constraint_polynomial_degree
                               )
-            # The epigraph constraint is very "flat" for branching rules,
-            # we want to use to original model for the main mip.
-            if MindtPy.objective_list[0].expr.polynomial_degree() in {1, 0} and config.add_regularization is not None:
+            # The epigraph constraint is very "flat" for branching rules.
+            # If ROA/RLP-NLP is activated and the original objective function is linear, we will use the original objective for the main mip.
+            if MindtPy.objective_list[0].expr.polynomial_degree() in solve_data.mip_objective_polynomial_degree and config.add_regularization is not None:
                 MindtPy.objective_list[0].activate()
                 MindtPy.objective_constr.deactivate()
                 MindtPy.objective.deactivate()
@@ -175,26 +241,49 @@ class MindtPySolver(object):
                     from_list=solve_data.best_solution_found.MindtPy_utils.variable_list,
                     to_list=MindtPy.variable_list,
                     config=config)
-                copy_var_list_values(
-                    MindtPy.variable_list,
-                    [i for i in solve_data.original_model.component_data_objects(
-                        Var) if not i.fixed],
-                    config)
+                # The original does not have variable list. Use get_vars_from_components() should be used for both working_model and original_model to exclude the unused variables.
+                solve_data.working_model.MindtPy_utils.deactivate()
+                if solve_data.working_model.find_component("_int_to_binary_reform") is not None:
+                    solve_data.working_model._int_to_binary_reform.deactivate()
+                copy_var_list_values(list(get_vars_from_components(block=solve_data.working_model, 
+                                         ctype=(Constraint, Objective), 
+                                         include_fixed=False, 
+                                         active=True,
+                                         sort=True, 
+                                         descend_into=True,
+                                         descent_order=None)),
+                                    list(get_vars_from_components(block=solve_data.original_model, 
+                                         ctype=(Constraint, Objective), 
+                                         include_fixed=False, 
+                                         active=True,
+                                         sort=True, 
+                                         descend_into=True,
+                                         descent_order=None)),
+                                    config=config)
                 # exclude fixed variables here. This is consistent with the definition of variable_list in GDPopt.util
+            if solve_data.objective_sense == minimize:
+                solve_data.results.problem.lower_bound = solve_data.dual_bound
+                solve_data.results.problem.upper_bound = solve_data.primal_bound
+            else:
+                solve_data.results.problem.lower_bound = solve_data.primal_bound
+                solve_data.results.problem.upper_bound = solve_data.dual_bound
 
-            solve_data.results.problem.lower_bound = solve_data.LB
-            solve_data.results.problem.upper_bound = solve_data.UB
+            solve_data.results.solver.timing = solve_data.timing
+            solve_data.results.solver.user_time = solve_data.timing.total
+            solve_data.results.solver.wallclock_time = solve_data.timing.total
+            solve_data.results.solver.iterations = solve_data.mip_iter
+            solve_data.results.solver.num_infeasible_nlp_subproblem = solve_data.nlp_infeasible_counter
+            solve_data.results.solver.best_solution_found_time = solve_data.best_solution_found_time
+            solve_data.results.solver.primal_integral = get_primal_integral(solve_data, config)
+            solve_data.results.solver.dual_integral = get_dual_integral(solve_data, config)
+            solve_data.results.solver.primal_dual_gap_integral = solve_data.results.solver.primal_integral + \
+                solve_data.results.solver.dual_integral
+            config.logger.info(' {:<25}:   {:>7.4f} '.format(
+                'Primal-dual gap integral', solve_data.results.solver.primal_dual_gap_integral))
 
-        solve_data.results.solver.timing = solve_data.timing
-        solve_data.results.solver.user_time = solve_data.timing.total
-        solve_data.results.solver.wallclock_time = solve_data.timing.total
-        solve_data.results.solver.iterations = solve_data.mip_iter
-        solve_data.results.solver.num_infeasible_nlp_subproblem = solve_data.nlp_infeasible_counter
-        solve_data.results.solver.best_solution_found_time = solve_data.best_solution_found_time
-
-        if config.single_tree:
-            solve_data.results.solver.num_nodes = solve_data.nlp_iter - \
-                (1 if config.init_strategy == 'rNLP' else 0)
+            if config.single_tree:
+                solve_data.results.solver.num_nodes = solve_data.nlp_iter - \
+                    (1 if config.init_strategy == 'rNLP' else 0)
 
         return solve_data.results
 
@@ -206,3 +295,8 @@ class MindtPySolver(object):
 
     def __exit__(self, t, v, traceback):
         pass
+
+
+# Add the CONFIG arguments to the solve method docstring
+MindtPySolver.solve.__doc__ = add_docstring_list(
+    MindtPySolver.solve.__doc__, MindtPySolver.CONFIG, indent_by=8)

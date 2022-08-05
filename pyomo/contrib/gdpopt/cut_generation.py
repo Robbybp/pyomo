@@ -1,9 +1,10 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and 
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain 
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
+#  Under the terms of Contract DE-NA0003525 with National Technology and
+#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
@@ -45,7 +46,7 @@ def add_outer_approximation_cuts(nlp_result, solve_data, config):
         # copy values over
         for var, val in zip(GDPopt.variable_list, nlp_result.var_values):
             if val is not None and not var.fixed:
-                var.value = val
+                var.set_value(val, skip_validation=True)
 
         # TODO some kind of special handling if the dual is phenomenally small?
         config.logger.debug('Adding OA cuts.')
@@ -156,7 +157,7 @@ def add_affine_cuts(nlp_result, solve_data, config):
         counter = 0
         for var, val in zip(GDPopt.variable_list, nlp_result.var_values):
             if val is not None and not var.fixed:
-                var.value = val
+                var.set_value(val, skip_validation=True)
 
         for constr in constraints_in_True_disjuncts(m, config):
             # Note: this includes constraints that are deactivated in the

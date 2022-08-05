@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -12,7 +13,7 @@ from pyomo.contrib.pynumero.interfaces.utils import build_bounds_mask, build_com
 import numpy as np
 import logging
 import time
-from .linalg.results import LinearSolverStatus
+from pyomo.contrib.pynumero.linalg.base import LinearSolverStatus
 from pyomo.common.timing import HierarchicalTimer
 import enum
 
@@ -312,7 +313,9 @@ class InteriorPointSolver(object):
             timer.start('back solve')
             with self.linear_solve_context:
                 self.logger.info('Iter: %s' % self._iter)
-                delta = linear_solver.do_back_solve(rhs)
+                delta, res = linear_solver.do_back_solve(rhs)
+                if res.status != LinearSolverStatus.successful:
+                    raise RuntimeError(f'Backsolve failed: {res.status}')
             timer.stop('back solve')
 
             interface.set_primal_dual_kkt_solution(delta)

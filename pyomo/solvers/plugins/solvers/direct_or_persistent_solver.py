@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -19,6 +20,7 @@ from pyomo.common.collections import ComponentMap, ComponentSet, Bunch
 from pyomo.common.tempfiles import TempfileManager
 import pyomo.opt.base.solvers
 from pyomo.opt.base.formats import ResultsFormat
+from pyomo.core.staleflag import StaleFlagManager
 
 
 class DirectOrPersistentSolver(OptSolver):
@@ -277,6 +279,7 @@ class DirectOrPersistentSolver(OptSolver):
         vars_to_load: list of Var
         """
         self._load_vars(vars_to_load)
+        StaleFlagManager.mark_all_as_stale(delayed=True)
 
     """ This method should be implemented by subclasses."""
     def warm_start_capable(self):

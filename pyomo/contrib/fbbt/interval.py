@@ -1,23 +1,20 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and 
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain 
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
+#  Under the terms of Contract DE-NA0003525 with National Technology and
+#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
 
 import math
 import logging
-from pyomo.common.errors import DeveloperError, InfeasibleConstraintException, PyomoException
+from pyomo.common.errors import InfeasibleConstraintException, IntervalException
 
 logger = logging.getLogger(__name__)
 inf = float('inf')
-
-
-class IntervalException(PyomoException):
-    pass
 
 
 def add(xl, xu, yl, yu):
@@ -300,6 +297,28 @@ def _inverse_power2(zl, zu, xl, xu, feasiblity_tol):
     lbb, ubb = log(xl, xu)
     yl, yu = div(lba, uba, lbb, ubb, feasiblity_tol)
     return yl, yu
+
+
+def interval_abs(xl, xu):
+    abs_xl = abs(xl)
+    abs_xu = abs(xu)
+    if xl <= 0 <= xu:
+        res_lb = 0
+        res_ub = max(abs_xl, abs_xu)
+    else:
+        res_lb = min(abs_xl, abs_xu)
+        res_ub = max(abs_xl, abs_xu)
+    return res_lb, res_ub
+
+
+def _inverse_abs(zl, zu):
+    if zl < 0:
+        zl = 0
+    if zu < 0:
+        zu = 0
+    xu = max(zl, zu)
+    xl = -xu
+    return xl, xu
 
 
 def exp(xl, xu):

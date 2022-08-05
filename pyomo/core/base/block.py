@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -21,6 +22,7 @@ import textwrap
 from inspect import isclass
 from operator import itemgetter
 from io import StringIO
+from pyomo.common.pyomo_typing import overload
 
 from pyomo.common.collections import Mapping
 from pyomo.common.deprecation import deprecated, deprecation_warning, RenamedClass
@@ -29,8 +31,9 @@ from pyomo.common.log import is_debug_set
 from pyomo.common.sorting import sorted_robust
 from pyomo.common.timing import ConstructionTimer
 from pyomo.core.base.component import (
-    Component, ActiveComponentData, ModelComponentFactory,
+    Component, ActiveComponentData, ModelComponentFactory
 )
+from pyomo.core.base.global_set import UnindexedComponent_index
 from pyomo.core.base.componentuid import ComponentUID
 from pyomo.core.base.set import GlobalSetBase, _SetDataBase
 from pyomo.core.base.var import Var
@@ -116,6 +119,101 @@ class SubclassOf(object):
 
     def __getitem__(self, item):
         return self
+
+
+class _DeduplicateInfo(object):
+    """Class implementing a unique component data object filter
+
+    This class implements :py:meth:`unique()`, which is an efficient
+    Reference-aware filter that wraps a generator and returns only
+    unique component data objects.  This is nominally the same as:
+
+        seen = set()
+        for data in iterator:
+            if id(data) not in seen:
+                seen.add(id(data))
+                yield data
+
+    However, it is aware of the existence of Reference components (and
+    that the only way you should ever encounter a duplicate is through a
+    Reference).  This allows it to avoid generating and storing the id()
+    of every data object.
+
+    """
+    __slots__ = ('seen_components', 'seen_comp_thru_reference', 'seen_data')
+
+    def __init__(self):
+        self.seen_components = set()
+        self.seen_comp_thru_reference = set()
+        self.seen_data = set()
+
+    def unique(self, comp, items, are_values):
+        """Generator that filters duplicate _ComponentData objects from items
+
+        Parameters
+        ----------
+        comp: ComponentBase
+           The Component (indexed or scalar) that contains all
+           _ComponentData returned by the `items` generator.
+
+        items: generator
+            Generator yielding either the values or the items from the
+            `comp` Component.
+
+        are_values: bool
+            If `True`, `items` yields _ComponentData objects, otherwise,
+            `items` yields `(index, _ComponentData)` tuples.
+
+        """
+        if comp.is_reference():
+            seen_components_contains = self.seen_components.__contains__
+            seen_comp_thru_reference_contains \
+                = self.seen_comp_thru_reference.__contains__
+            seen_comp_thru_reference_add = self.seen_comp_thru_reference.add
+            seen_data_contains = self.seen_data.__contains__
+            seen_data_add = self.seen_data.add
+
+            for _item in items:
+                _data = _item if are_values else _item[1]
+                # If the data is contained in a component we have
+                # already processed, then it is a duplicate and we can
+                # bypass further checks.
+                _id = id(_data.parent_component())
+                if seen_components_contains(_id):
+                    continue
+                # Remember that this component has already been
+                # partially visited (important for the case that we hit
+                # the "natural" component later in the generator)
+                if not seen_comp_thru_reference_contains(_id):
+                    seen_comp_thru_reference_add(_id)
+                # Yield any data objects we haven't seen yet (and
+                # remember them)
+                _id = id(_data)
+                if not seen_data_contains(_id):
+                    seen_data_add(_id)
+                    yield _item
+        else: # this is a "natural" component
+            # Remember that we have completely processed this component
+            _id = id(comp)
+            self.seen_components.add(_id)
+            if _id not in self.seen_comp_thru_reference:
+                # No data in this component has yet been emitted
+                # (through a Reference), so we can just yield all the
+                # values.
+                yield from items
+            else:
+                # This component has had some data yielded (through
+                # References).  We need to check for conflicts before
+                # yielding each data.  Note that since we have already
+                # marked the entire component as processed and data can
+                # not reappear in natural components, we only need to
+                # check for duplicates and not remember them.
+                seen_data_contains = self.seen_data.__contains__
+                for _item in items:
+                    if not seen_data_contains(id(
+                            _item if are_values else _item[0])):
+                        yield _item
+
 
 class SortComponents(object):
 
@@ -365,8 +463,8 @@ class PseudoMap(object):
         # declaration order
         #
         # Ironically, the values are the fundamental thing that we
-        # can (efficiently) iterate over in decl_order.  iterkeys
-        # just wraps itervalues.
+        # can (efficiently) iterate over in decl_order.  keys()
+        # just wraps values().
         for obj in self.values():
             yield obj._name
 
@@ -411,8 +509,8 @@ class PseudoMap(object):
         defined on the Block
         """
         # Ironically, the values are the fundamental thing that we
-        # can (efficiently) iterate over in decl_order.  iteritems
-        # just wraps itervalues.
+        # can (efficiently) iterate over in decl_order.  items()
+        # just wraps values().
         for obj in self.values():
             yield (obj._name, obj)
 
@@ -798,11 +896,11 @@ class _BlockData(ActiveComponentData):
                 if tset.parent_component().parent_block() is None \
                         and not isinstance(tset.parent_component(), GlobalSetBase):
                     self.add_component("%s_index_%d" % (val.local_name, ctr), tset)
-        if getattr(val, '_index', None) is not None \
-                and isinstance(val._index, _SetDataBase) \
-                and val._index.parent_component().parent_block() is None \
-                and not isinstance(val._index.parent_component(), GlobalSetBase):
-            self.add_component("%s_index" % (val.local_name,), val._index.parent_component())
+        if getattr(val, '_index_set', None) is not None \
+                and isinstance(val._index_set, _SetDataBase) \
+                and val._index_set.parent_component().parent_block() is None \
+                and not isinstance(val._index_set.parent_component(), GlobalSetBase):
+            self.add_component("%s_index" % (val.local_name,), val._index_set.parent_component())
         if getattr(val, 'initialize', None) is not None \
                 and isinstance(val.initialize, _SetDataBase) \
                 and val.initialize.parent_component().parent_block() is None \
@@ -813,23 +911,6 @@ class _BlockData(ActiveComponentData):
                 and val.domain.parent_block() is None \
                 and not isinstance(val.domain, GlobalSetBase):
             self.add_component("%s_domain" % (val.local_name,), val.domain)
-
-    def _flag_vars_as_stale(self):
-        """
-        Configure *all* variables (on active blocks) and
-        their composite _VarData objects as stale. This
-        method is used prior to loading solver
-        results. Variable that did not particpate in the
-        solution are flagged as stale.  E.g., it most cases
-        fixed variables will be flagged as stale since they
-        are compiled out of expressions; however, many
-        solver plugins support including fixed variables in
-        the output problem by overriding bounds in order to
-        minimize preprocessing requirements, meaning fixed
-        variables are not necessarily always stale.
-        """
-        for variable in self.component_objects(Var, active=True):
-            variable.flag_as_stale()
 
     def collect_ctypes(self,
                        active=None,
@@ -856,7 +937,7 @@ class _BlockData(ActiveComponentData):
                                              descend_into=descend_into,
                                              sort=SortComponents.unsorted):
             if active is None:
-                ctypes.update(ctype for ctype in block._ctypes)
+                ctypes.update(block._ctypes)
             else:
                 assert active is True
                 for ctype in block._ctypes:
@@ -865,8 +946,10 @@ class _BlockData(ActiveComponentData):
                             active=True,
                             descend_into=False,
                             sort=SortComponents.unsorted):
+                        # We only need to verify that there is at least
+                        # one active data member
                         ctypes.add(ctype)
-                        break  # just need 1 or more
+                        break
         return ctypes
 
     def model(self):
@@ -1300,11 +1383,11 @@ Components must now specify their rules explicitly using 'rule=' keywords.""" %
             Specifies the component types (`ctypes`) to include in the
             resulting PseudoMap
 
-                =============   ===================
+                =============   ===================================
                 None            All components
                 type            A single component type
                 iterable        All component types in the iterable
-                =============   ===================
+                =============   ===================================
 
         active: None or bool
             Filter components by the active flag
@@ -1316,7 +1399,7 @@ Components must now specify their rules explicitly using 'rule=' keywords.""" %
                 =====  ===============================
 
         sort: bool
-            Iterate over the components in a sorted otder
+            Iterate over the components in a sorted order
 
                 =====  ================================================
                 True   Iterate using Block.alphabetizeComponentAndIndex
@@ -1348,10 +1431,29 @@ Components must now specify their rules explicitly using 'rule=' keywords.""" %
         else:
             return PseudoMap(self, ctype, active, sort)
 
-    def _component_data_iter(self, ctype=None, active=None, sort=False):
-        """
-        Generator that returns a 3-tuple of (component name, index value,
-        and _ComponentData) for every component data in the block.
+    def _component_data_iteritems(self, ctype, active, sort, dedup):
+        """return the name, index, and component data for matching ctypes
+
+        Generator that returns a nested 2-tuple of
+
+            ((component name, index value), _ComponentData)
+
+        for every component data in the block matching the specified
+        ctype(s).
+
+        Parameters
+        ----------
+        ctype:  None or type or iterable
+            Specifies the component types (`ctypes`) to include
+
+        active: None or bool
+            Filter components by the active flag
+
+        sort: None or bool or SortComponents
+            Iterate over the components in a specified sorted order
+
+        dedup: _DeduplicateInfo
+            Deduplicator to prevent returning the same _ComponentData twice
         """
         _sort_indices = SortComponents.sort_indices(sort)
         _subcomp = PseudoMap(self, ctype, active, sort)
@@ -1365,23 +1467,80 @@ Components must now specify their rules explicitly using 'rule=' keywords.""" %
             #   where there are "sparse scalar components"
             if comp.is_indexed():
                 _items = comp.items()
+                if _sort_indices:
+                    _items = sorted_robust(_items, key=itemgetter(0))
             elif hasattr(comp, '_data'):
-                # This may be an empty Scalar component (e.g., from
-                # Constraint.Skip on a scalar Constraint)
+                # This is a Scalar component, which may be empty (e.g.,
+                # from Constraint.Skip on a scalar Constraint).  Only
+                # return a ComponentData if one officially exists.
+                # Sorting is not a concern as this component has either
+                # 0 or 1 datas
                 assert len(comp._data) <= 1
                 _items = comp._data.items()
             else:
+                # This is a non-IndexedComponent Component.  Return it.
                 _items = ((None, comp),)
 
-            if _sort_indices:
-                _items = sorted_robust(_items, key=itemgetter(0))
             if active is None or not isinstance(comp, ActiveIndexedComponent):
-                for idx, compData in _items:
-                    yield (name, idx), compData
+                _items = (((name, idx), compData) for idx, compData in _items)
             else:
-                for idx, compData in _items:
-                    if compData.active == active:
-                        yield (name, idx), compData
+                _items = (((name, idx), compData) for idx, compData in _items
+                          if compData.active == active)
+
+            yield from dedup.unique(comp, _items, False)
+
+    def _component_data_itervalues(self, ctype, active, sort, dedup):
+        """Generator that returns the _ComponentData for every component data
+        in the block.
+
+        Parameters
+        ----------
+        ctype:  None or type or iterable
+            Specifies the component types (`ctypes`) to include
+
+        active: None or bool
+            Filter components by the active flag
+
+        sort: None or bool or SortComponents
+            Iterate over the components in a specified sorted order
+
+        dedup: _DeduplicateInfo
+            Deduplicator to prevent returning the same _ComponentData twice
+        """
+        if SortComponents.sort_indices(sort):
+            # We need the indices so that we can correctly sort.  Fall
+            # back on _component_data_iteritems.
+            yield from map(
+                itemgetter(1),
+                self._component_data_iteritems(ctype, active, sort, dedup)
+            )
+            return
+
+        _subcomp = PseudoMap(self, ctype, active, sort)
+        for comp in _subcomp.values():
+            # NOTE: Suffix has a dict interface (something other derived
+            #   non-indexed Components may do as well), so we don't want
+            #   to test the existence of iteritems as a check for
+            #   component datas. We will rely on is_indexed() to catch
+            #   all the indexed components.  Then we will do special
+            #   processing for the scalar components to catch the case
+            #   where there are "sparse scalar components"
+            if comp.is_indexed():
+                _values = comp.values()
+            elif hasattr(comp, '_data'):
+                # This is a Scalar component, which may be empty (e.g.,
+                # from Constraint.Skip on a scalar Constraint).  Only
+                # return a ComponentData if one officially exists.
+                assert len(comp._data) <= 1
+                _values = comp._data.values()
+            else:
+                # This is a non-IndexedComponent Component.  Return it.
+                _values = (comp,)
+
+            if active is not None and isinstance(comp, ActiveIndexedComponent):
+                _values = filter(lambda cDat: cDat.active == active, _values)
+
+            yield from dedup.unique(comp, _values, True)
 
     @deprecated("The all_components method is deprecated.  "
                 "Use the Block.component_objects() method.",
@@ -1416,10 +1575,8 @@ Components must now specify their rules explicitly using 'rule=' keywords.""" %
         component objects in a block.  By default, the
         generator recursively descends into sub-blocks.
         """
-        if not descend_into:
-            yield from self.component_map(ctype, active, sort).values()
-            return
-        for _block in self.block_data_objects(active, sort, descend_into, descent_order):
+        for _block in self.block_data_objects(
+                active, sort, descend_into, descent_order):
             yield from _block.component_map(ctype, active, sort).values()
 
     def component_data_objects(self,
@@ -1434,20 +1591,11 @@ Components must now specify their rules explicitly using 'rule=' keywords.""" %
         block.  By default, this generator recursively
         descends into sub-blocks.
         """
-        if descend_into:
-            block_generator = self.block_data_objects(
-                active=active,
-                sort=sort,
-                descend_into=descend_into,
-                descent_order=descent_order)
-        else:
-            block_generator = (self,)
-
-        for _block in block_generator:
-            for x in _block._component_data_iter(ctype=ctype,
-                                                 active=active,
-                                                 sort=sort):
-                yield x[1]
+        dedup = _DeduplicateInfo()
+        for _block in self.block_data_objects(
+                active, sort, descend_into, descent_order):
+            yield from _block._component_data_itervalues(
+                ctype, active, sort, dedup)
 
     def component_data_iterindex(self,
                                  ctype=None,
@@ -1464,19 +1612,11 @@ Components must now specify their rules explicitly using 'rule=' keywords.""" %
             ((component name, index value), _ComponentData)
 
         """
-        if descend_into:
-            block_generator = self.block_data_objects(
-                active=active,
-                sort=sort,
-                descend_into=descend_into,
-                descent_order=descent_order)
-        else:
-            block_generator = (self,)
-
-        for _block in block_generator:
-            yield from _block._component_data_iter(ctype=ctype,
-                                                   active=active,
-                                                   sort=sort)
+        dedup = _DeduplicateInfo()
+        for _block in self.block_data_objects(
+                active, sort, descend_into, descent_order):
+            yield from _block._component_data_iteritems(
+                ctype, active, sort, dedup)
 
     @deprecated("The all_blocks method is deprecated.  "
                 "Use the Block.block_data_objects() method.",
@@ -1496,72 +1636,73 @@ Components must now specify their rules explicitly using 'rule=' keywords.""" %
                            sort=False,
                            descend_into=True,
                            descent_order=None):
+        """Generator returning this block and any matching sub-blocks.
+
+        This is roughly equivalent to
+
+            iter(block for block in itertools.chain(
+                [self], self.component_data_objects(descend_into, ...))
+                if block.active == active
+            )
+
+        Notes
+        -----
+        The `self` block is *always* returned, regardless of the types
+        indicated by `descend_into`.
+
+        The active flag is enforced on *all* blocks, including `self`.
+
+        Parameters
+        ----------
+        active: None or bool
+            If not None, filter components by the active flag
+
+        sort: None or bool or SortComponents
+            Iterate over the components in a specified sorted order
+
+        descend_into:  None or type or iterable
+            Specifies the component types (`ctypes`) to return and to
+            descend into.  If `True` or `None`, defaults to `(Block,)`.
+            If `False`, only `self` is returned.
+
+        descent_order: None or TraversalStrategy
+            The strategy used to walk the block hierarchy.  Defaults to
+            `TraversalStrategy.PrefixDepthFirstSearch`.
 
         """
-        This method returns a generator that iterates
-        through the current block and recursively all
-        sub-blocks.  This is semantically equivalent to
-
-            component_data_objects(Block, ...)
-
-        """
-        if descend_into is False:
-            if active is not None and self.active != active:
-                # Return an iterator over an empty tuple
-                return ().__iter__()
-            else:
-                return (self,).__iter__()
-        #
-        # Rely on the _tree_iterator:
-        #
-        if descend_into is True:
-            descend_into = (Block,)
-        elif isclass(descend_into):
-            descend_into = (descend_into,)
-        return self._tree_iterator(ctype=descend_into,
-                                   active=active,
-                                   sort=sort,
-                                   traversal=descent_order)
-
-    def _tree_iterator(self,
-                       ctype=None,
-                       active=None,
-                       sort=None,
-                       traversal=None):
-
-        # TODO: merge into block_data_objects
-        if ctype is None:
-            ctype = (Block,)
-        elif isclass(ctype):
-            ctype = (ctype,)
-
-        # A little weird, but since we "normally" return a generator, we
-        # will return a generator for an empty list instead of just
-        # returning None or an empty list here (so that consumers can
-        # count on us always returning a generator)
+        # TODO: we should determine if that is desirable behavior(it is
+        # historical, so there are backwards compatibility arguments to
+        # not change it, but because of block_data_objects() use in
+        # component_data_objects, it might be desirable to always return
+        # self.
         if active is not None and self.active != active:
-            return ().__iter__()
+            return
+        if not descend_into:
+            yield self
+            return
 
-        # ALWAYS return the "self" Block, even if it does not match
-        # ctype.  This is because we map this ctype to the
-        # "descend_into" argument in public calling functions: callers
-        # expect that the called thing will be iterated over.
-        #
-        # if self.parent_component().ctype not in ctype:
-        #    return ().__iter__()
+        if descend_into is True:
+            ctype = (Block,)
+        elif isclass(descend_into):
+            ctype = (descend_into,)
+        else:
+            ctype = descend_into
+        dedup = _DeduplicateInfo()
 
-        if traversal is None or \
-                traversal == TraversalStrategy.PrefixDepthFirstSearch:
-            return self._prefix_dfs_iterator(ctype, active, sort)
-        elif traversal == TraversalStrategy.BreadthFirstSearch:
-            return self._bfs_iterator(ctype, active, sort)
-        elif traversal == TraversalStrategy.PostfixDepthFirstSearch:
-            return self._postfix_dfs_iterator(ctype, active, sort)
+        if descent_order is None or \
+                descent_order == TraversalStrategy.PrefixDepthFirstSearch:
+            walker = self._prefix_dfs_iterator(ctype, active, sort, dedup)
+        elif descent_order == TraversalStrategy.BreadthFirstSearch:
+            walker = self._bfs_iterator(ctype, active, sort, dedup)
+        elif descent_order == TraversalStrategy.PostfixDepthFirstSearch:
+            walker = self._postfix_dfs_iterator(ctype, active, sort, dedup)
         else:
             raise RuntimeError("unrecognized traversal strategy: %s"
-                               % (traversal, ))
+                               % (descent_order, ))
+        yield from walker
 
-    def _prefix_dfs_iterator(self, ctype, active, sort):
+
+    def _prefix_dfs_iterator(self, ctype, active, sort, dedup):
         """Helper function implementing a non-recursive prefix order
         depth-first search.  That is, the parent is returned before its
         children.
@@ -1570,6 +1711,10 @@ Components must now specify their rules explicitly using 'rule=' keywords.""" %
         method, which centralizes certain error checking and
         preliminaries.
         """
+        # We will unconditionally return self, so preemptively add it to
+        # the list of "seen" IDs
+        dedup.seen_data.add(id(self))
+
         PM = PseudoMap(self, ctype, active, sort)
         _stack = [(self,).__iter__(), ]
         while _stack:
@@ -1578,14 +1723,13 @@ Components must now specify their rules explicitly using 'rule=' keywords.""" %
                 yield _block
                 if not PM:
                     continue
-                _stack.append(_block.component_data_objects(ctype=ctype,
-                                                            active=active,
-                                                            sort=sort,
-                                                            descend_into=False))
+                _stack.append(_block._component_data_itervalues(
+                    ctype, active, sort, dedup)
+                )
             except StopIteration:
                 _stack.pop()
 
-    def _postfix_dfs_iterator(self, ctype, active, sort):
+    def _postfix_dfs_iterator(self, ctype, active, sort, dedup):
         """
         Helper function implementing a non-recursive postfix
         order depth-first search.  That is, the parent is
@@ -1595,17 +1739,24 @@ Components must now specify their rules explicitly using 'rule=' keywords.""" %
         _tree_iterator method, which centralizes certain
         error checking and preliminaries.
         """
-        _stack = [(self, self.component_data_iterindex(ctype, active, sort, False))]
+        # We will unconditionally return self, so preemptively add it to
+        # the list of "seen" IDs
+        dedup.seen_data.add(id(self))
+
+        _stack = [
+            (self, self._component_data_itervalues(ctype, active, sort, dedup))
+        ]
         while _stack:
             try:
-                _sub = next(_stack[-1][1])[-1]
-                _stack.append((_sub,
-                               _sub.component_data_iterindex(ctype, active, sort, False)
-                               ))
+                _sub = next(_stack[-1][1])
+                _stack.append((
+                    _sub,
+                    _sub._component_data_itervalues(ctype, active, sort, dedup)
+                 ))
             except StopIteration:
                 yield _stack.pop()[0]
 
-    def _bfs_iterator(self, ctype, active, sort):
+    def _bfs_iterator(self, ctype, active, sort, dedup):
         """Helper function implementing a non-recursive breadth-first search.
         That is, all children at one level in the tree are returned
         before any of the children at the next level.
@@ -1615,6 +1766,10 @@ Components must now specify their rules explicitly using 'rule=' keywords.""" %
         preliminaries.
 
         """
+        # We will unconditionally return self, so preemptively add it to
+        # the list of "seen" IDs
+        dedup.seen_data.add(id(self))
+
         if SortComponents.sort_indices(sort):
             if SortComponents.sort_names(sort):
                 sorter = itemgetter(1, 2)
@@ -1645,10 +1800,9 @@ Components must now specify their rules explicitly using 'rule=' keywords.""" %
                 yield _items[-1]  # _block
                 _levelQueue[_level].append(
                     tmp[0] + (tmp[1],) for tmp in
-                    _items[-1].component_data_iterindex(ctype=ctype,
-                                                        active=active,
-                                                        sort=sort,
-                                                        descend_into=False))
+                    _items[-1]._component_data_iteritems(
+                        ctype, active, sort, dedup)
+                )
 
     def fix_all_vars(self):
         # TODO: Simplify based on recursive logic
@@ -1867,6 +2021,11 @@ class Block(ActiveIndexedComponent):
         else:
             return IndexedBlock.__new__(IndexedBlock)
 
+    # `options` is ignored since it is deprecated
+    @overload
+    def __init__(self, *indexes, rule=None, concrete=False, dense=True,
+                 name=None, doc=None): ...
+
     def __init__(self, *args, **kwargs):
         """Constructor"""
         self._suppress_ctypes = set()
@@ -2015,7 +2174,7 @@ class Block(ActiveIndexedComponent):
     def _pprint(self):
         _attrs = [
             ("Size", len(self)),
-            ("Index", self._index if self.is_indexed() else None),
+            ("Index", self._index_set if self.is_indexed() else None),
             ('Active', self.active),
         ]
         # HACK: suppress the top-level block header (for historical reasons)
@@ -2050,6 +2209,7 @@ class ScalarBlock(_BlockData, Block):
         # get/setitem_when_not_present so that we do not (implicitly)
         # trigger the Block rule
         self._data[None] = self
+        self._index = UnindexedComponent_index
 
     # We want scalar Blocks to pick up the Block display method
     display = Block.display
