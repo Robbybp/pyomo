@@ -10,12 +10,14 @@
 #  ___________________________________________________________________________
 
 import itertools
+import enum
 from pyomo.environ import SolverFactory
 from pyomo.core.base.var import Var
 from pyomo.core.base.constraint import Constraint
 from pyomo.core.base.objective import Objective
 from pyomo.core.expr.visitor import identify_variables
 from pyomo.common.collections import ComponentSet
+from pyomo.common.timing import HierarchicalTimer
 from pyomo.core.base.suffix import Suffix
 from pyomo.util.calc_var_value import calculate_variable_from_constraint
 from pyomo.util.subsystems import (
@@ -37,6 +39,20 @@ from pyomo.contrib.incidence_analysis.util import (
 )
 import numpy as np
 import scipy.sparse as sps
+
+
+TIMER = HierarchicalTimer()
+
+
+class TimeBins(enum.Enum):
+    construct = 0
+    set_inputs = 1
+    evaluate_jacobian = 2
+    evaluate_hessian = 3
+
+    @staticmethod
+    def to_str(item):
+        return str(item).split('.')[1]
 
 
 def _dense_to_full_sparse(matrix):
@@ -173,6 +189,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             is False.
 
         """
+        TIMER.start(TimeBins.to_str(TimeBins.construct))
         if use_cyipopt is None:
             use_cyipopt = cyipopt_available
         if use_cyipopt and not cyipopt_available:
@@ -263,6 +280,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         self.residual_con_multipliers = [None for _ in residual_cons]
         self.residual_scaling_factors = None
 
+        TIMER.stop(TimeBins.to_str(TimeBins.construct))
+
     def n_inputs(self):
         return len(self.input_vars)
 
@@ -276,6 +295,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         return ["residual_%i" % i for i in range(self.n_equality_constraints())]
 
     def set_input_values(self, input_values):
+        TIMER.start(TimeBins.to_str(TimeBins.set_inputs))
         solver = self._solver
         external_cons = self.external_cons
         external_vars = self.external_vars
@@ -343,6 +363,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         values = np.fromiter((var.value for var in to_update), float)
         primals[indices] = values
         self._nlp.set_primals(primals)
+
+        TIMER.stop(TimeBins.to_str(TimeBins.set_inputs))
 
     def set_equality_constraint_multipliers(self, eq_con_multipliers):
         """
@@ -435,6 +457,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         return self._nlp.extract_subvector_constraints(self.residual_cons)
 
     def evaluate_jacobian_equality_constraints(self):
+        TIMER.start(TimeBins.to_str(TimeBins.evaluate_jacobian))
         nlp = self._nlp
         x = self.input_vars
         y = self.external_vars
@@ -459,7 +482,9 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         # be nonzero. Here, this is all of the entries.
         dfdx = jfx + jfy.dot(dydx)
 
-        return _dense_to_full_sparse(dfdx)
+        full_sparse = _dense_to_full_sparse(dfdx)
+        TIMER.stop(TimeBins.to_str(TimeBins.evaluate_jacobian))
+        return full_sparse
 
     def evaluate_jacobian_external_variables(self):
         nlp = self._nlp
@@ -570,6 +595,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         due to these equality constraints.
 
         """
+        TIMER.start(TimeBins.to_str(TimeBins.evaluate_hessian))
         # External multipliers must be calculated after both primals and duals
         # are set, and are only necessary for this Hessian calculation.
         # We know this Hessian calculation wants to use the most recently
@@ -585,7 +611,9 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         # Hessian-of-Lagrangian term in the full space.
         hess_lag = self.calculate_reduced_hessian_lagrangian(hlxx, hlxy, hlyy)
         sparse = _dense_to_full_sparse(hess_lag)
-        return sps.tril(sparse)
+        lower_triangle = sps.tril(sparse)
+        TIMER.stop(TimeBins.to_str(TimeBins.evaluate_hessian))
+        return lower_triangle
 
     def set_equality_constraint_scaling_factors(self, scaling_factors):
         """
