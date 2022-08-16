@@ -26,11 +26,18 @@ from pyomo.contrib.pynumero.interfaces.pyomo_nlp import PyomoNLP
 from pyomo.contrib.pynumero.interfaces.external_grey_box import (
     ExternalGreyBoxModel,
 )
-from pyomo.contrib.pynumero.interfaces.nlp_projections import ProjectedNLP
+from pyomo.contrib.pynumero.interfaces.nlp_projections import (
+    ProjectedNLP,
+    ProjectedExtendedNLP,
+)
 from pyomo.contrib.pynumero.algorithms.solvers.cyipopt_solver import (
     cyipopt_available,
     CyIpoptNLP,
     CyIpoptSolver,
+)
+from pyomo.contrib.pynumero.algorithms.solvers.scipy_solvers import (
+    RootNlpSolver,
+    FsolveNlpSolver,
 )
 from pyomo.contrib.incidence_analysis.util import (
     generate_strongly_connected_components,
@@ -238,14 +245,19 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                 for scc, inputs in self._vector_scc_list
             ]
             self._vector_proj_nlps = [
-                ProjectedNLP(nlp, names) for nlp, names in
+                #ProjectedNLP(nlp, names) for nlp, names in
+                ProjectedExtendedNLP(nlp, names) for nlp, names in
                 zip(self._vector_scc_nlps, self._vector_scc_var_names)
             ]
 
             # We will solve the ProjectedNLPs rather than the original NLPs
-            self._cyipopt_nlps = [CyIpoptNLP(nlp) for nlp in self._vector_proj_nlps]
-            self._cyipopt_solvers = [
-                CyIpoptSolver(nlp) for nlp in self._cyipopt_nlps
+            #self._cyipopt_nlps = [CyIpoptNLP(nlp) for nlp in self._vector_proj_nlps]
+            #self._cyipopt_solvers = [
+            #    CyIpoptSolver(nlp) for nlp in self._cyipopt_nlps
+            #]
+            # Use scipy solvers rather than CyIpopt
+            self._scipy_solvers = [
+                FsolveNlpSolver(nlp) for nlp in self._vector_proj_nlps
             ]
             self._vector_scc_input_coords = [
                 nlp.get_primal_indices(inputs)
@@ -298,7 +310,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                     nlp = self._vector_scc_nlps[vector_scc_idx]
                     proj_nlp = self._vector_proj_nlps[vector_scc_idx]
                     input_coords = self._vector_scc_input_coords[vector_scc_idx]
-                    cyipopt = self._cyipopt_solvers[vector_scc_idx]
+                    #cyipopt = self._cyipopt_solvers[vector_scc_idx]
+                    scipy_solver = self._scipy_solvers[vector_scc_idx]
                     _, local_inputs = self._vector_scc_list[vector_scc_idx]
 
                     primals = nlp.get_primals()
@@ -314,7 +327,9 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                     # This affects future evaluations in the ProjectedNLP
                     nlp.set_primals(primals)
                     x0 = proj_nlp.get_primals()
-                    sol, _ = cyipopt.solve(x0=x0)
+                    #sol, _ = cyipopt.solve(x0=x0)
+                    scipy_solver.solve(x0=x0)
+                    sol = proj_nlp.get_primals()
 
                     # Set primals from solution in projected NLP. This updates
                     # values in the original NLP
