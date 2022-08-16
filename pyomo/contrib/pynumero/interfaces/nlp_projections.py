@@ -1,4 +1,4 @@
-from pyomo.contrib.pynumero.interfaces.nlp import NLP
+from pyomo.contrib.pynumero.interfaces.nlp import NLP, ExtendedNLP
 import numpy as np
 import scipy.sparse as sp
 
@@ -103,6 +103,15 @@ class _BaseNLPDelegator(NLP):
 
     def report_solver_status(self, status_code, status_message):
         self._original_nlp.report_solver_status(status_code, status_message)
+
+
+class _ExtendedNLPDelegator(_BaseNLPDelegator):
+
+    def n_eq_constraints(self):
+        return self._original_nlp.n_eq_constraints()
+
+    def n_ineq_constraints(self):
+        return self._original_nlp.n_ineq_constraints()
 
 
 class RenamedNLP(_BaseNLPDelegator):
@@ -302,3 +311,7 @@ class ProjectedNLP(_BaseNLPDelegator):
 
     def report_solver_status(self, status_code, status_message):
         raise NotImplementedError('Need to think about this...')
+
+
+class ProjectedExtendedNLP(ProjectedNLP, _ExtendedNLPDelegator):
+    pass
