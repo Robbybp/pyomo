@@ -47,6 +47,13 @@ class TimeBins(enum.Enum):
     set_inputs = 1
     evaluate_jacobian = 2
     evaluate_hessian = 3
+    calc_var = 4
+    newton = 5
+    vector_solve = 6
+    get_primals = 7
+    set_primals = 8
+    get_value = 9
+    set_value = 10
 
     @staticmethod
     def to_str(item):
@@ -309,10 +316,13 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         vector_scc_idx = 0
         for block, inputs in self._scc_list:
             if len(block.vars) == 1:
+                self._timer.start(TimeBins.to_str(TimeBins.calc_var))
                 calculate_variable_from_constraint(
                     block.vars[0], block.cons[0]
                 )
+                self._timer.stop(TimeBins.to_str(TimeBins.calc_var))
             else:
+                self._timer.start(TimeBins.to_str(TimeBins.vector_solve))
                 if self._use_cyipopt:
                     # Transfer variable values into the projected NLP, solve,
                     # and extract values.
@@ -323,32 +333,52 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                     cyipopt = self._cyipopt_solvers[vector_scc_idx]
                     _, local_inputs = self._vector_scc_list[vector_scc_idx]
 
+                    self._timer.start(TimeBins.to_str(TimeBins.get_primals))
                     primals = nlp.get_primals()
+                    self._timer.stop(TimeBins.to_str(TimeBins.get_primals))
                     variables = nlp.get_pyomo_variables()
 
                     # Set values and bounds from inputs to the SCC.
                     # This works because values have been set in the original
                     # pyomo model, either by a previous SCC solve, or from the
                     # "global inputs"
+                    self._timer.start(TimeBins.to_str(TimeBins.get_value))
                     for i, var in zip(input_coords, local_inputs):
                         # Set primals (inputs) in the original NLP
                         primals[i] = var.value
                     # This affects future evaluations in the ProjectedNLP
+                    self._timer.stop(TimeBins.to_str(TimeBins.get_value))
+
+                    self._timer.start(TimeBins.to_str(TimeBins.set_primals))
                     nlp.set_primals(primals)
+                    self._timer.stop(TimeBins.to_str(TimeBins.set_primals))
+
+                    self._timer.start(TimeBins.to_str(TimeBins.get_primals))
                     x0 = proj_nlp.get_primals()
+                    self._timer.stop(TimeBins.to_str(TimeBins.get_primals))
+
+                    self._timer.start(TimeBins.to_str(TimeBins.newton))
                     sol, _ = cyipopt.solve(x0=x0)
+                    self._timer.stop(TimeBins.to_str(TimeBins.newton))
 
                     # Set primals from solution in projected NLP. This updates
                     # values in the original NLP
+                    self._timer.start(TimeBins.to_str(TimeBins.set_primals))
                     proj_nlp.set_primals(sol)
+                    self._timer.stop(TimeBins.to_str(TimeBins.set_primals))
+
                     # I really only need to set new primals for the variables in
                     # the ProjectedNLP. However, I can only get a list of variables
                     # from the original Pyomo NLP, so here some of the values I'm
                     # setting are redundant.
+                    self._timer.start(TimeBins.to_str(TimeBins.get_primals))
                     new_primals = nlp.get_primals()
+                    self._timer.stop(TimeBins.to_str(TimeBins.get_primals))
                     assert len(new_primals) == len(variables)
+                    self._timer.start(TimeBins.to_str(TimeBins.set_value))
                     for var, val in zip(variables, new_primals):
                         var.set_value(val, skip_validation=True)
+                    self._timer.stop(TimeBins.to_str(TimeBins.set_value))
 
                 else:
                     # Use a Pyomo solver to solve this strongly connected
@@ -357,6 +387,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
                         solver.solve(block)
 
                 vector_scc_idx += 1
+                self._timer.stop(TimeBins.to_str(TimeBins.vector_solve))
 
         # Send updated variable values to NLP for dervative evaluation
         primals = self._nlp.get_primals()
