@@ -249,7 +249,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             # some preprocessing.
             self._vector_scc_list = [
                 (scc, inputs) for scc, inputs in self._scc_list
-                if len(scc.vars) > 1
+                #if len(scc.vars) > 1
+                if len(scc.vars) >= 1
             ]
 
             # Need a dummy objective to create an NLP
@@ -328,13 +329,19 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
 
         vector_scc_idx = 0
         for block, inputs in self._scc_list:
-            if len(block.vars) == 1:
+            #if len(block.vars) == 1:
+            if len(block.vars) < 1:
                 self._timer.start(TimeBins.to_str(TimeBins.calc_var))
                 calculate_variable_from_constraint(
                     block.vars[0], block.cons[0]
                 )
                 self._timer.stop(TimeBins.to_str(TimeBins.calc_var))
             else:
+                # HACK: So I can compare calc_var between this and
+                # an instance that actually uses the method.
+                self._timer.start(TimeBins.to_str(TimeBins.calc_var))
+                self._timer.stop(TimeBins.to_str(TimeBins.calc_var))
+
                 self._timer.start(TimeBins.to_str(TimeBins.vector_solve))
                 if self._use_cyipopt:
                     # Transfer variable values into the projected NLP, solve,
