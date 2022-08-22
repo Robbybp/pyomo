@@ -113,11 +113,17 @@ class _ExtendedNLPDelegator(_BaseNLPDelegator):
     def n_ineq_constraints(self):
         return self._original_nlp.n_ineq_constraints()
 
-    def evaluate_eq_constraints(self):
-        return self._original_nlp.evaluate_eq_constraints()
+    def evaluate_eq_constraints(self, out=None):
+        return self._original_nlp.evaluate_eq_constraints(out=out)
 
-    def evaluate_jacobian_eq(self):
-        return self._original_nlp.evaluate_jacobian_eq()
+    def evaluate_jacobian_eq(self, out=None):
+        return self._original_nlp.evaluate_jacobian_eq(out=out)
+
+    def evaluate_ineq_constraints(self, out=None):
+        return self._original_nlp.evaluate_ineq_constraints(out=out)
+
+    def evaluate_jacobian_ineq(self, out=None):
+        return self._original_nlp.evaluate_jacobian_ineq(out=out)
 
 
 class RenamedNLP(_BaseNLPDelegator):
