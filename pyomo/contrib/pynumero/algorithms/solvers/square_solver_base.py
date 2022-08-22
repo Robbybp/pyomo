@@ -62,10 +62,12 @@ class _SquareNlpSolverBase(object):
         self._timer.stop(timebins.set_primals)
 
         self._timer.start(timebins.constraints)
-        values = self._nlp.evaluate_eq_constraints()
+        self._function_values = self._nlp.evaluate_eq_constraints(
+            out=self._function_values
+        )
         self._timer.stop(timebins.constraints)
 
-        return values
+        return self._function_values
 
     def evaluate_jacobian(self, x0):
         # NOTE: NLP object should handle any caching
