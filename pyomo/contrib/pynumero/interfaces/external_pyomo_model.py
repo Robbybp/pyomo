@@ -284,7 +284,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             #]
             # Use scipy solvers rather than CyIpopt
             self._scipy_solvers = [
-                FsolveNlpSolver(nlp) for nlp in self._vector_proj_nlps
+                FsolveNlpSolver(nlp, timer=self._timer)
+                for nlp in self._vector_proj_nlps
                 #RootNlpSolver(nlp) for nlp in self._vector_proj_nlps
             ]
             self._vector_scc_input_coords = [
