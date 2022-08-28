@@ -34,6 +34,9 @@ from pyomo.contrib.pynumero.algorithms.solvers.cyipopt_solver import (
     CyIpoptNLP,
     CyIpoptSolver,
 )
+from pyomo.contrib.pynumero.algorithms.solvers.param_square_solvers import (
+    SccMultiNlpHybridParamSquareSolver,
+)
 from pyomo.contrib.incidence_analysis.util import (
     generate_strongly_connected_components,
 )
@@ -227,57 +230,12 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         self._block._obj = Objective(expr=0.0)
         self._nlp = PyomoNLP(self._block)
 
-        self._scc_list = list(generate_strongly_connected_components(
-            external_cons, variables=external_vars
-        ))
-
-        if use_cyipopt:
-            # Using CyIpopt allows us to solve inner problems without
-            # costly rewriting of the nl file. It requires quite a bit
-            # of preprocessing, however, to construct the ProjectedNLP
-            # for each block of the decomposition.
-
-            # Get "vector-valued" SCCs, those of dimension > 0.
-            # We will solve these with a direct IPOPT interface, which requires
-            # some preprocessing.
-            self._vector_scc_list = [
-                (scc, inputs) for scc, inputs in self._scc_list
-                if len(scc.vars) > 1
-            ]
-
-            # Need a dummy objective to create an NLP
-            for scc, inputs in self._vector_scc_list:
-                scc._obj = Objective(expr=0.0)
-
-                # I need scaling_factor so Pyomo NLPs I create from these blocks
-                # don't break when ProjectedNLP calls get_primals_scaling
-                scc.scaling_factor = Suffix(direction=Suffix.EXPORT)
-                # HACK: scaling_factor just needs to be nonempty.
-                scc.scaling_factor[scc._obj] = 1.0
-
-            # These are the "original NLPs" that will be projected
-            self._vector_scc_nlps = [
-                PyomoNLP(scc) for scc, inputs in self._vector_scc_list
-            ]
-            self._vector_scc_var_names = [
-                [var.name for var in scc.vars.values()]
-                for scc, inputs in self._vector_scc_list
-            ]
-            self._vector_proj_nlps = [
-                ProjectedNLP(nlp, names) for nlp, names in
-                zip(self._vector_scc_nlps, self._vector_scc_var_names)
-            ]
-
-            # We will solve the ProjectedNLPs rather than the original NLPs
-            self._cyipopt_nlps = [CyIpoptNLP(nlp) for nlp in self._vector_proj_nlps]
-            self._cyipopt_solvers = [
-                CyIpoptSolver(nlp) for nlp in self._cyipopt_nlps
-            ]
-            self._vector_scc_input_coords = [
-                nlp.get_primal_indices(inputs)
-                for nlp, (scc, inputs) in
-                zip(self._vector_scc_nlps, self._vector_scc_list)
-            ]
+        self._external_block = create_subsystem_block(
+            external_cons, input_vars + external_vars
+        )
+        self._solver = SccMultiNlpHybridParamSquareSolver(
+            self._external_block, input_vars, variables=external_vars
+        )
 
         assert len(external_vars) == len(external_cons)
 
@@ -310,84 +268,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         external_vars = self.external_vars
         input_vars = self.input_vars
 
-        for var, val in zip(input_vars, input_values):
-            var.set_value(val, skip_validation=True)
-
-        vector_scc_idx = 0
-        for block, inputs in self._scc_list:
-            if len(block.vars) == 1:
-                self._timer.start(TimeBins.to_str(TimeBins.calc_var))
-                calculate_variable_from_constraint(
-                    block.vars[0], block.cons[0]
-                )
-                self._timer.stop(TimeBins.to_str(TimeBins.calc_var))
-            else:
-                self._timer.start(TimeBins.to_str(TimeBins.vector_solve))
-                if self._use_cyipopt:
-                    # Transfer variable values into the projected NLP, solve,
-                    # and extract values.
-
-                    nlp = self._vector_scc_nlps[vector_scc_idx]
-                    proj_nlp = self._vector_proj_nlps[vector_scc_idx]
-                    input_coords = self._vector_scc_input_coords[vector_scc_idx]
-                    cyipopt = self._cyipopt_solvers[vector_scc_idx]
-                    _, local_inputs = self._vector_scc_list[vector_scc_idx]
-
-                    self._timer.start(TimeBins.to_str(TimeBins.get_primals))
-                    primals = nlp.get_primals()
-                    self._timer.stop(TimeBins.to_str(TimeBins.get_primals))
-                    variables = nlp.get_pyomo_variables()
-
-                    # Set values and bounds from inputs to the SCC.
-                    # This works because values have been set in the original
-                    # pyomo model, either by a previous SCC solve, or from the
-                    # "global inputs"
-                    self._timer.start(TimeBins.to_str(TimeBins.get_value))
-                    for i, var in zip(input_coords, local_inputs):
-                        # Set primals (inputs) in the original NLP
-                        primals[i] = var.value
-                    # This affects future evaluations in the ProjectedNLP
-                    self._timer.stop(TimeBins.to_str(TimeBins.get_value))
-
-                    self._timer.start(TimeBins.to_str(TimeBins.set_primals))
-                    nlp.set_primals(primals)
-                    self._timer.stop(TimeBins.to_str(TimeBins.set_primals))
-
-                    self._timer.start(TimeBins.to_str(TimeBins.get_primals))
-                    x0 = proj_nlp.get_primals()
-                    self._timer.stop(TimeBins.to_str(TimeBins.get_primals))
-
-                    self._timer.start(TimeBins.to_str(TimeBins.newton))
-                    sol, _ = cyipopt.solve(x0=x0)
-                    self._timer.stop(TimeBins.to_str(TimeBins.newton))
-
-                    # Set primals from solution in projected NLP. This updates
-                    # values in the original NLP
-                    self._timer.start(TimeBins.to_str(TimeBins.set_primals))
-                    proj_nlp.set_primals(sol)
-                    self._timer.stop(TimeBins.to_str(TimeBins.set_primals))
-
-                    # I really only need to set new primals for the variables in
-                    # the ProjectedNLP. However, I can only get a list of variables
-                    # from the original Pyomo NLP, so here some of the values I'm
-                    # setting are redundant.
-                    self._timer.start(TimeBins.to_str(TimeBins.get_primals))
-                    new_primals = nlp.get_primals()
-                    self._timer.stop(TimeBins.to_str(TimeBins.get_primals))
-                    assert len(new_primals) == len(variables)
-                    self._timer.start(TimeBins.to_str(TimeBins.set_value))
-                    for var, val in zip(variables, new_primals):
-                        var.set_value(val, skip_validation=True)
-                    self._timer.stop(TimeBins.to_str(TimeBins.set_value))
-
-                else:
-                    # Use a Pyomo solver to solve this strongly connected
-                    # component.
-                    with TemporarySubsystemManager(to_fix=inputs):
-                        solver.solve(block)
-
-                vector_scc_idx += 1
-                self._timer.stop(TimeBins.to_str(TimeBins.vector_solve))
+        solver.update_parameters(input_values)
+        solver.solve()
 
         # Send updated variable values to NLP for dervative evaluation
         primals = self._nlp.get_primals()
