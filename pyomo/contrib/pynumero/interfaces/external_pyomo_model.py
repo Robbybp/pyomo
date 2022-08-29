@@ -234,7 +234,10 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             external_cons, input_vars + external_vars
         )
         self._solver = SccMultiNlpHybridParamSquareSolver(
-            self._external_block, input_vars, variables=external_vars
+            self._external_block,
+            input_vars,
+            variables=external_vars,
+            timer=self._timer,
         )
 
         assert len(external_vars) == len(external_cons)
