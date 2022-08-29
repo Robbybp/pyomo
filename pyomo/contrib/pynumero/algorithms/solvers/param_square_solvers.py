@@ -36,6 +36,22 @@ from pyomo.contrib.incidence_analysis.util import (
 
 class SccMultiNlpHybridParamSquareSolver(ParameterizedSquareSolver):
 
+    TimeBins = namedtuple(
+        "TimeBins",
+        [
+            "construct",
+            "update_parameters",
+            "solve",
+            "calc_var",
+            "cyipopt",
+        ],
+    )
+    time_bins = TimeBins(
+        *ParameterizedSquareSolver.time_bins,
+        "calc_var",
+        "cyipopt",
+    )
+
     def __init__(
         self,
         model,
@@ -60,6 +76,8 @@ class SccMultiNlpHybridParamSquareSolver(ParameterizedSquareSolver):
         if timer is None:
             timer = HierarchicalTimer()
         self._timer = timer
+
+        self._timer.start(self.time_bins.construct)
 
         self.equations = list(
             model.component_data_objects(Constraint, active=True)
@@ -115,20 +133,29 @@ class SccMultiNlpHybridParamSquareSolver(ParameterizedSquareSolver):
             zip(self._vector_scc_nlps, self._vector_scc_list)
         ]
 
+        self._timer.stop(self.time_bins.construct)
+
     def update_parameters(self, values):
+        self._timer.start(self.time_bins.update_parameters)
         for var, val in zip(self._param_vars, values):
             var.set_value(val, skip_validation=True)
+        self._timer.stop(self.time_bins.update_parameters)
 
     def solve(self):
+        self._timer.start(self.time_bins.solve)
         vector_scc_idx = 0
         for block, inputs in self._scc_list:
             if len(block.vars) == 1:
+                self._timer.start(self.time_bins.calc_var)
                 calculate_variable_from_constraint(
                     block.vars[0], block.cons[0]
                 )
+                self._timer.stop(self.time_bins.calc_var)
             else:
                 # Transfer variable values into the projected NLP, solve,
                 # and extract values.
+                self._timer.start(self.time_bins.calc_var)
+                self._timer.stop(self.time_bins.calc_var)
 
                 nlp = self._vector_scc_nlps[vector_scc_idx]
                 proj_nlp = self._vector_proj_nlps[vector_scc_idx]
@@ -152,7 +179,9 @@ class SccMultiNlpHybridParamSquareSolver(ParameterizedSquareSolver):
 
                 x0 = proj_nlp.get_primals()
 
+                self._timer.start(self.time_bins.cyipopt)
                 sol, _ = cyipopt.solve(x0=x0)
+                self._timer.stop(self.time_bins.cyipopt)
 
                 # Set primals from solution in projected NLP. This updates
                 # values in the original NLP
@@ -168,3 +197,4 @@ class SccMultiNlpHybridParamSquareSolver(ParameterizedSquareSolver):
                     var.set_value(val, skip_validation=True)
 
                 vector_scc_idx += 1
+        self._timer.stop(self.time_bins.solve)
