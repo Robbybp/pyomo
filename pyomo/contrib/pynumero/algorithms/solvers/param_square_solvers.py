@@ -49,7 +49,7 @@ class SccMultiNlpHybridParamSquareSolver(ParameterizedSquareSolver):
     time_bins = TimeBins(
         *ParameterizedSquareSolver.time_bins,
         "calc_var",
-        "cyipopt",
+        "newton",
     )
 
     def __init__(
