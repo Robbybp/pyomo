@@ -146,20 +146,13 @@ def block_triangularize(matrix, matching=None):
                 "Cardinality of maximal matching is %s" % len_matching
                 )
 
-    # Construct directed graph of rows
-    #dg = nx.DiGraph()
-    #dg.add_nodes_from(range(M))
-    #for n in dg.nodes:
-    #    col_idx = matching[n]
-    #    col_node = col_idx + M
-    #    # For all rows that share this column
-    #    for neighbor in bg[col_node]:
-    #        if neighbor != n:
-    #            # Add an edge towards this column's matched row
-    #            dg.add_edge(neighbor, n)
-
-    # TODO: Pass in matching as argument so we don't compute it twice
-    dg = get_projected_directed_graph_from_matching(matrix)
+    # Matching provided maps row to column indices. For simplicity when
+    # operating on a graph (rather than matrix), the projection function
+    # needs to provided a matching between unique nodes.
+    node_matching = {r: c + M for r, c in matching.items()}
+    dg = get_projected_directed_graph_from_matching(
+        matrix, matching=node_matching
+    )
 
     # Get the strongly connected components and their DAG
     scc_list, dag = get_scc_dag(dg)
