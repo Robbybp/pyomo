@@ -13,6 +13,97 @@ from pyomo.contrib.incidence_analysis.matching import maximum_matching
 from pyomo.common.dependencies import networkx as nx
 
 
+def get_scc_dag(digraph):
+    """A function to get the strongly connected components (SCCs) of a
+    directed graph as well as the directed acyclic graph (DAG) describing
+    the ordering of these components
+
+    Arguments
+    ---------
+    digraph: NetworkX DiGraph
+
+    Returns
+    -------
+    List of lists partitioning nodes into strongly connected components,
+    NetworkX DiGraph with an edge between two SCCs if an edge between
+    nodes in the two SCCs exists in the original graph.
+
+    """
+    nxc = nx.algorithms.components
+    # Get strongly connected components of directed graph
+    scc_list = list(nxc.strongly_connected_components(digraph))
+    # Map nodes to their SCCs so we can convert edges in the original
+    # graph to edges in the SCC graph
+    node_scc_map = {n: idx for idx, scc in enumerate(scc_list) for n in scc}
+
+    # Now we need to put the SCCs in the right order. We do this by performing
+    # a topological sort on the DAG of SCCs.
+    dag = nx.DiGraph()
+    dag.add_nodes_from(range(len(scc_list)))
+    #for i, c in enumerate(scc_list):
+    #    dag.add_node(i)
+    for n in digraph.nodes:
+        source_scc = node_scc_map[n]
+        for neighbor in digraph[n]:
+            target_scc = node_scc_map[neighbor]
+            if target_scc != source_scc:
+                # Can we make sure we don't add repeat edges here?
+                dag.add_edge(source_scc, target_scc)
+    return scc_list, dag
+
+
+def get_projected_directed_graph_from_matching(
+    graph_or_matrix, project_onto=None, matching=None
+):
+    """Function to convert a bipartite graph or incidence matrix
+    into a directed graph.
+
+    Arguments
+    ---------
+    graph_or_matrix: NetworkX Graph or SciPy coo_matrix
+        The bipartite graph or incidence matrix to be projected into
+        a directed graph.
+    project_onto: List
+        Nodes to be retained in the projected graph
+    matching: Dict
+        Maps nodes to their matched nodes. Contains nodes from both
+        biparatite sets.
+
+    Returns
+    -------
+    NetworkX DiGraph. A graph defined on the specified nodes
+
+    """
+    nxb = nx.algorithms.bipartite
+    from_biadjacency_matrix = nxb.matrix.from_biadjacency_matrix
+
+    if isinstance(graph_or_matrix, nx.Graph) and project_onto is None:
+        raise RuntimeError(
+            "A set of nodes to project onto must be provided if a"
+            " NetworkX graph is provided."
+        )
+
+    if not isinstance(graph_or_matrix, nx.Graph):
+        matrix = graph_or_matrix
+        M, N = matrix.shape
+        bg = from_biadjacency_matrix(graph_or_matrix)
+        project_onto = list(range(M))
+    else:
+        bg = graph_or_matrix
+
+    if matching is None:
+        matching = nxb.matching.maximum_matching(bg, top_nodes=project_onto)
+
+    dg = nx.DiGraph()
+    dg.add_nodes_from(project_onto)
+    for n in project_onto:
+        if n in matching:
+            for neighbor in bg[matching[n]]:
+                if neighbor != n:
+                    dg.add_edge(neighbor, n)
+    return dg
+
+
 def block_triangularize(matrix, matching=None):
     """
     Computes the necessary information to permute a matrix to block-lower
@@ -56,36 +147,28 @@ def block_triangularize(matrix, matching=None):
                 )
 
     # Construct directed graph of rows
-    dg = nx.DiGraph()
-    dg.add_nodes_from(range(M))
-    for n in dg.nodes:
-        col_idx = matching[n]
-        col_node = col_idx + M
-        # For all rows that share this column
-        for neighbor in bg[col_node]:
-            if neighbor != n:
-                # Add an edge towards this column's matched row
-                dg.add_edge(neighbor, n)
+    #dg = nx.DiGraph()
+    #dg.add_nodes_from(range(M))
+    #for n in dg.nodes:
+    #    col_idx = matching[n]
+    #    col_node = col_idx + M
+    #    # For all rows that share this column
+    #    for neighbor in bg[col_node]:
+    #        if neighbor != n:
+    #            # Add an edge towards this column's matched row
+    #            dg.add_edge(neighbor, n)
 
-    # Partition the rows into strongly connected components (diagonal blocks)
-    scc_list = list(nxc.strongly_connected_components(dg))
+    # TODO: Pass in matching as argument so we don't compute it twice
+    dg = get_projected_directed_graph_from_matching(matrix)
+
+    # Get the strongly connected components and their DAG
+    scc_list, dag = get_scc_dag(dg)
     node_scc_map = {n: idx for idx, scc in enumerate(scc_list) for n in scc}
 
-    # Now we need to put the SCCs in the right order. We do this by performing
-    # a topological sort on the DAG of SCCs.
-    dag = nx.DiGraph()
-    for i, c in enumerate(scc_list):
-        dag.add_node(i)
-    for n in dg.nodes:
-        source_scc = node_scc_map[n]
-        for neighbor in dg[n]:
-            target_scc = node_scc_map[neighbor]
-            if target_scc != source_scc:
-                dag.add_edge(target_scc, source_scc)
-                # Reverse direction of edge. This corresponds to creating
-                # a block lower triangular matrix.
-
     scc_order = list(nxd.lexicographical_topological_sort(dag))
+    # Reverse the topological order to get a block-lower triangular matrix,
+    # i.e. we can solve the row/column subsets in forward order.
+    scc_order.reverse()
 
     scc_block_map = {c: i for i, c in enumerate(scc_order)}
     row_block_map = {n: scc_block_map[c] for n, c in node_scc_map.items()}
