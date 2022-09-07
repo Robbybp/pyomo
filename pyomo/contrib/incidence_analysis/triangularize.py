@@ -40,8 +40,6 @@ def get_scc_dag(digraph):
     # a topological sort on the DAG of SCCs.
     dag = nx.DiGraph()
     dag.add_nodes_from(range(len(scc_list)))
-    #for i, c in enumerate(scc_list):
-    #    dag.add_node(i)
     for n in digraph.nodes:
         source_scc = node_scc_map[n]
         for neighbor in digraph[n]:
