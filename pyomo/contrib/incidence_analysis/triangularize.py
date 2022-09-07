@@ -24,7 +24,7 @@ def get_scc_dag(digraph):
 
     Returns
     -------
-    List of lists partitioning nodes into strongly connected components,
+    List of sets partitioning nodes into strongly connected components,
     NetworkX DiGraph with an edge between two SCCs if an edge between
     nodes in the two SCCs exists in the original graph.
 
