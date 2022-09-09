@@ -29,9 +29,25 @@ from pyomo.contrib.pynumero.algorithms.solvers.cyipopt_solver import (
 from pyomo.contrib.pynumero.algorithms.solvers.square_solver_base import (
     ParameterizedSquareSolver,
 )
+from pyomo.contrib.pynumero.algorithms.solvers.scipy_solvers import (
+    FsolveNlpSolver,
+)
 from pyomo.contrib.incidence_analysis.util import (
     generate_strongly_connected_components,
 )
+
+
+class CyIpoptSolverWrapper(object):
+    """A wrapper for CyIpoptNLP and CyIpoptSolver that implements the
+    API required by ParameterizedSquareSolvers.
+
+    """
+    def __init__(self, nlp):
+        self._cyipopt_nlp = CyIpoptNLP(nlp)
+        self._cyipopt_solver = CyIpoptSolver(self._cyipopt_nlp)
+
+    def solve(self, **kwds):
+        return self._cyipopt_solver.solve(**kwds)
 
 
 class SccMultiNlpHybridParamSquareSolver(ParameterizedSquareSolver):
@@ -58,6 +74,7 @@ class SccMultiNlpHybridParamSquareSolver(ParameterizedSquareSolver):
         param_vars,
         variables=None,
         timer=None,
+        solver_class=None,
     ):
         """
         Arguments
@@ -76,6 +93,10 @@ class SccMultiNlpHybridParamSquareSolver(ParameterizedSquareSolver):
         if timer is None:
             timer = HierarchicalTimer()
         self._timer = timer
+        if solver_class is None:
+            #solver_class = FsolveNlpSolver
+            solver_class = CyIpoptSolverWrapper
+        self._solver_class = solver_class
 
         self._timer.start(self.time_bins.construct)
 
@@ -123,9 +144,8 @@ class SccMultiNlpHybridParamSquareSolver(ParameterizedSquareSolver):
         ]
 
         # We will solve the ProjectedNLPs rather than the original NLPs
-        self._cyipopt_nlps = [CyIpoptNLP(nlp) for nlp in self._vector_proj_nlps]
-        self._cyipopt_solvers = [
-            CyIpoptSolver(nlp) for nlp in self._cyipopt_nlps
+        self._nlp_solvers = [
+            self._solver_class(nlp) for nlp in self._vector_proj_nlps
         ]
         self._vector_scc_input_coords = [
             nlp.get_primal_indices(inputs)
@@ -160,7 +180,8 @@ class SccMultiNlpHybridParamSquareSolver(ParameterizedSquareSolver):
                 nlp = self._vector_scc_nlps[vector_scc_idx]
                 proj_nlp = self._vector_proj_nlps[vector_scc_idx]
                 input_coords = self._vector_scc_input_coords[vector_scc_idx]
-                cyipopt = self._cyipopt_solvers[vector_scc_idx]
+
+                nlp_solver = self._nlp_solvers[vector_scc_idx]
                 _, local_inputs = self._vector_scc_list[vector_scc_idx]
 
                 primals = nlp.get_primals()
@@ -180,7 +201,7 @@ class SccMultiNlpHybridParamSquareSolver(ParameterizedSquareSolver):
                 x0 = proj_nlp.get_primals()
 
                 self._timer.start(self.time_bins.cyipopt)
-                sol, _ = cyipopt.solve(x0=x0)
+                sol, _ = nlp_solver.solve(x0=x0)
                 self._timer.stop(self.time_bins.cyipopt)
 
                 # Set primals from solution in projected NLP. This updates
