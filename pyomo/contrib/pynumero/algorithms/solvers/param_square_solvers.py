@@ -284,8 +284,8 @@ class CompressedSccSolver(ParameterizedSquareSolver):
             timer = HierarchicalTimer()
         self._timer = timer
         if solver_class is None:
-            #solver_class = FsolveNlpSolver
-            solver_class = CyIpoptSolverWrapper
+            solver_class = FsolveNlpSolver
+            #solver_class = CyIpoptSolverWrapper
         self._solver_class = solver_class
 
         self._timer.start(self.time_bins.construct)
@@ -371,7 +371,9 @@ class CompressedSccSolver(ParameterizedSquareSolver):
         # We will solve the ProjectedNLPs rather than the original NLPs
         self._nlp_solvers = [
             #self._solver_class(nlp)
-            self._solver_class(nlp, options=dict(tol=1e-12))
+            self._solver_class(
+                nlp, options=dict(tol=1e-8, xtol=1e-12)
+            )
             for nlp in self._vector_proj_nlps
         ]
         self._vector_subsystem_input_coords = [
