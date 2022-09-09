@@ -36,6 +36,7 @@ from pyomo.contrib.pynumero.algorithms.solvers.cyipopt_solver import (
 )
 from pyomo.contrib.pynumero.algorithms.solvers.param_square_solvers import (
     SccMultiNlpHybridParamSquareSolver,
+    CompressedSccSolver,
 )
 from pyomo.contrib.incidence_analysis.util import (
     generate_strongly_connected_components,
@@ -233,6 +234,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         self._external_block = create_subsystem_block(
             external_cons, input_vars + external_vars
         )
+        #self._solver = CompressedSccSolver(
         self._solver = SccMultiNlpHybridParamSquareSolver(
             self._external_block,
             input_vars,
