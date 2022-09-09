@@ -234,8 +234,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         self._external_block = create_subsystem_block(
             external_cons, input_vars + external_vars
         )
-        #self._solver = CompressedSccSolver(
-        self._solver = SccMultiNlpHybridParamSquareSolver(
+        self._solver = CompressedSccSolver(
+        #self._solver = SccMultiNlpHybridParamSquareSolver(
             self._external_block,
             input_vars,
             variables=external_vars,
