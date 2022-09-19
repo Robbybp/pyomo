@@ -90,6 +90,7 @@ class SccMultiNlpHybridParamSquareSolver(ParameterizedSquareSolver):
         variables=None,
         timer=None,
         solver_class=None,
+        solver_options=None,
     ):
         """
         Arguments
@@ -100,6 +101,14 @@ class SccMultiNlpHybridParamSquareSolver(ParameterizedSquareSolver):
             Variables to be treated as parameters
         variables: List of VarData
             Variables to be solved for
+        timer: HierarchicalTimer
+            Timer object used for recording
+        solver_class: NLP Solver
+            Any class that can be constructed with an NLP (to be precise,
+            ProjectedExtendedNLP) and implements a solve method that
+            takes x0 as an argument.
+        solver_options: dict
+            Options dict provided to the constructor of the NLP solver
 
         """
         self._model = model
@@ -111,6 +120,9 @@ class SccMultiNlpHybridParamSquareSolver(ParameterizedSquareSolver):
         if solver_class is None:
             solver_class = FsolveNlpSolver
         self._solver_class = solver_class
+        if solver_options is None:
+            solver_options = {}
+        self._solver_options = solver_options
 
         self._timer.start(self.time_bins.construct)
 
@@ -159,7 +171,8 @@ class SccMultiNlpHybridParamSquareSolver(ParameterizedSquareSolver):
 
         # We will solve the ProjectedNLPs rather than the original NLPs
         self._nlp_solvers = [
-            self._solver_class(nlp) for nlp in self._vector_proj_nlps
+            self._solver_class(nlp, options=self._solver_options)
+            for nlp in self._vector_proj_nlps
         ]
         self._vector_scc_input_coords = [
             nlp.get_primal_indices(inputs)
@@ -265,6 +278,7 @@ class CompressedSccSolver(ParameterizedSquareSolver):
         variables=None,
         timer=None,
         solver_class=None,
+        solver_options=None,
     ):
         """
         Arguments
@@ -284,8 +298,8 @@ class CompressedSccSolver(ParameterizedSquareSolver):
             timer = HierarchicalTimer()
         self._timer = timer
         if solver_class is None:
-            solver_class = FsolveNlpSolver
-            #solver_class = CyIpoptSolverWrapper
+            #solver_class = FsolveNlpSolver
+            solver_class = CyIpoptSolverWrapper
         self._solver_class = solver_class
 
         self._timer.start(self.time_bins.construct)
@@ -370,10 +384,10 @@ class CompressedSccSolver(ParameterizedSquareSolver):
 
         # We will solve the ProjectedNLPs rather than the original NLPs
         self._nlp_solvers = [
-            #self._solver_class(nlp)
-            self._solver_class(
-                nlp, options=dict(tol=1e-8, xtol=1e-12)
-            )
+            self._solver_class(nlp)
+            #self._solver_class(
+            #    nlp, options=dict(tol=1e-8, xtol=1e-12)
+            #)
             for nlp in self._vector_proj_nlps
         ]
         self._vector_subsystem_input_coords = [
