@@ -173,8 +173,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         external_vars,
         residual_cons,
         external_cons,
-        use_cyipopt=None,
-        solver=None,
+        solver_class=None,
+        solver_options=None,
         timer=None,
     ):
         """
@@ -190,37 +190,20 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         external_cons: list
             List of equality constraints used to solve for the external
             variables
-        use_cyipopt: bool
-            Whether to use CyIpopt to solve strongly connected components of
-            the implicit function that have dimension greater than one.
-        solver: Pyomo solver object
-            Used to solve strongly connected components of the implicit function
-            that have dimension greater than one. Only used if use_cyipopt
-            is False.
+        solver_class: Subclass of ParamSquareSolver
+        solver_options: dict
+            Options dict for the ParamSquareSolver
 
         """
         if timer is None:
             timer = HierarchicalTimer()
         self._timer = timer
         self._timer.start(TimeBins.to_str(TimeBins.construct))
-        if use_cyipopt is None:
-            use_cyipopt = cyipopt_available
-        if use_cyipopt and not cyipopt_available:
-            raise RuntimeError(
-                "Constructing an ExternalPyomoModel with CyIpopt unavailable. "
-                "Please set the use_cyipopt argument to False."
-            )
-        if solver is not None and use_cyipopt:
-            raise RuntimeError(
-                "Constructing an ExternalPyomoModel with a solver specified "
-                "and use_cyipopt set to True. Please set use_cyipopt to False "
-                "to use the desired solver."
-            )
-        elif solver is None and not use_cyipopt:
-            solver = SolverFactory("ipopt")
-        # If use_cyipopt is True, this solver is None and will not be used.
-        self._solver = solver
-        self._use_cyipopt = use_cyipopt
+        if solver_class is None:
+            solver_class = SccMultiNlpHybridParamSquareSolver
+        self._solver_class = solver_class
+        if solver_options is None:
+            solver_options = {}
 
         # We only need this block to construct the NLP, which wouldn't
         # be necessary if we could compute Hessians of Pyomo constraints.
@@ -234,12 +217,12 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         self._external_block = create_subsystem_block(
             external_cons, input_vars + external_vars
         )
-        self._solver = CompressedSccSolver(
-        #self._solver = SccMultiNlpHybridParamSquareSolver(
+        self._solver = self._solver_class(
             self._external_block,
             input_vars,
             variables=external_vars,
             timer=self._timer,
+            **solver_options,
         )
 
         assert len(external_vars) == len(external_cons)
