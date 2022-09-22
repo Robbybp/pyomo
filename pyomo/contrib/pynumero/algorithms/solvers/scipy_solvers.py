@@ -111,7 +111,8 @@ class RootNlpSolver(DenseSquareNlpSolver):
         default="hybr",
         # NOTE: Only supporting Powell hybrid method and Levenberg-Marquardt
         # methods (both from MINPACK) for now.
-        domain=In({"hybr", "lm"}),
+        #domain=In({"hybr", "lm"}),
+        domain=str,
         description="Method used to solve for the function root",
     ))
 
@@ -123,6 +124,31 @@ class RootNlpSolver(DenseSquareNlpSolver):
             self.evaluate_function,
             x0,
             jac=self.evaluate_jacobian,
+        )
+        return results
+
+
+class NewtonNlpSolver(DenseSquareNlpSolver):
+
+    OPTIONS = ConfigBlock(
+        description="Options for SciPy newton wrapper",
+    )
+    OPTIONS.declare("tol", ConfigValue(
+        default=1e-8,
+        domain=float,
+        description="Convergence tolerance",
+    ))
+
+    # TODO: Check that NLP is one-dimensional
+    def solve(self, x0=None):
+        if x0 is None:
+            x0 = self._nlp.get_primals()
+
+        results = sp.optimize.newton(
+            lambda x: self.evaluate_function(np.array([x]))[0],
+            x0[0],
+            fprime=lambda x: self.evaluate_jacobian(np.array([x]))[0, 0],
+            tol=self.options.tol,
         )
         return results
 
