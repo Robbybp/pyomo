@@ -103,14 +103,18 @@ class SquareNlpSolverBase(object):
 
     def evaluate_function(self, x0):
         # NOTE: NLP object should handle any caching
+        self._timer.start("eval_f")
         self._nlp.set_primals(x0)
         values = self._nlp.evaluate_eq_constraints()
+        self._timer.stop("eval_f")
         return values
 
     def evaluate_jacobian(self, x0):
         # NOTE: NLP object should handle any caching
+        self._timer.start("eval_j")
         self._nlp.set_primals(x0)
         self._jacobian = self._nlp.evaluate_jacobian_eq(out=self._jacobian)
+        self._timer.stop("eval_j")
         return self._jacobian
 
 
