@@ -161,8 +161,9 @@ class SquareDecompositionSolver(ParameterizedSquareSolver):
 
         # We will solve the ProjectedNLPs rather than the original NLPs
         self._nlp_solvers = [
-            self._solver_class(nlp, options=self._solver_options)
-            for nlp in self._solver_proj_nlps
+            self._solver_class(
+                nlp, timer=self._timer, options=self._solver_options
+            ) for nlp in self._solver_proj_nlps
         ]
         self._solver_subsystem_input_coords = [
             nlp.get_primal_indices(inputs)
