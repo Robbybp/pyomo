@@ -33,12 +33,16 @@ gurobi_persistent_available = SolverFactory(
                  'Symbolic differentiation is not available')
 class TestMindtPy(unittest.TestCase):
     """Tests for the MindtPy solver plugin."""
+
+    def check_optimal_solution(self, model, places=1):
+        for var in model.optimal_solution:
+            self.assertAlmostEqual(var.value, model.optimal_solution[var], places=places)
+
     @unittest.skipIf(not(ipopt_available and cplex_persistent_available and cplexpy_available),
                      'Required subsolvers are not available')
     def test_OA_solution_pool_cplex(self):
         """Test the outer approximation decomposition algorithm."""
         with SolverFactory('mindtpy') as opt:
-            print('\n Solving 8PP problem with Outer Approximation')
             for model in model_list:
                 results = opt.solve(model, strategy='OA',
                                     init_strategy='rNLP',
@@ -50,13 +54,13 @@ class TestMindtPy(unittest.TestCase):
                               [TerminationCondition.optimal, TerminationCondition.feasible])
                 self.assertAlmostEqual(
                     value(model.objective.expr), model.optimal_value, places=2)
+                self.check_optimal_solution(model)
 
     @unittest.skipIf(not(ipopt_available and gurobi_persistent_available),
                      'Required subsolvers are not available')
     def test_OA_solution_pool_gurobi(self):
         """Test the outer approximation decomposition algorithm."""
         with SolverFactory('mindtpy') as opt:
-            print('\n Solving 8PP problem with Outer Approximation')
             for model in model_list:
                 results = opt.solve(model, strategy='OA',
                                     init_strategy='rNLP',
@@ -68,6 +72,7 @@ class TestMindtPy(unittest.TestCase):
                               [TerminationCondition.optimal, TerminationCondition.feasible])
                 self.assertAlmostEqual(
                     value(model.objective.expr), model.optimal_value, places=2)
+                self.check_optimal_solution(model)
 
     # the following tests are used to increase the code coverage
     @unittest.skipIf(not(ipopt_available and cplex_persistent_available),
@@ -75,7 +80,6 @@ class TestMindtPy(unittest.TestCase):
     def test_OA_solution_pool_coverage1(self):
         """Test the outer approximation decomposition algorithm."""
         with SolverFactory('mindtpy') as opt:
-            print('\n Solving 8PP problem with Outer Approximation')
             for model in model_list:
                 results = opt.solve(model, strategy='OA',
                                     init_strategy='rNLP',
@@ -88,6 +92,7 @@ class TestMindtPy(unittest.TestCase):
                               [TerminationCondition.optimal, TerminationCondition.feasible])
                 self.assertAlmostEqual(
                     value(model.objective.expr), model.optimal_value, places=2)
+                self.check_optimal_solution(model)
 
 
 if __name__ == '__main__':

@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -75,6 +76,7 @@ class TestCollocation(unittest.TestCase):
 
         for idx, val in enumerate(list(m.t)):
             self.assertAlmostEqual(val, expected_disc_points[idx])
+            self.assertTrue(type(val) in [float, int])
 
         self.assertTrue(hasattr(m, '_pyomo_dae_reclassified_derivativevars'))
         self.assertTrue(m._pyomo_dae_reclassified_derivativevars[0] is m.dv1)
@@ -174,6 +176,7 @@ class TestCollocation(unittest.TestCase):
 
         for idx, val in enumerate(list(m.t)):
             self.assertAlmostEqual(val, expected_disc_points[idx])
+            self.assertTrue(type(val) in [float, int])
 
         self.assertTrue(hasattr(m, '_pyomo_dae_reclassified_derivativevars'))
         self.assertTrue(m.dv1 in m._pyomo_dae_reclassified_derivativevars)

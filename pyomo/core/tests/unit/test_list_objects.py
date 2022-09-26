@@ -1,9 +1,10 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and 
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain 
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
+#  Under the terms of Contract DE-NA0003525 with National Technology and
+#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
@@ -366,10 +367,13 @@ class _TestActiveComponentListBase(_TestComponentListBase):
         model.c.insert(0, self._cdatatype(self._arg()))
         self.assertEqual(model.c.active, True)
 
+
 class TestVarList(_TestComponentListBase,
                   unittest.TestCase):
+    # Note: the updated _GeneralVarData class only takes an optional
+    # parent argument (you no longer pass the domain in)
     _ctype = XVarList
-    _cdatatype = _GeneralVarData
+    _cdatatype = lambda self, arg: _GeneralVarData()
     def setUp(self):
         _TestComponentListBase.setUp(self)
         self._arg = lambda: Reals

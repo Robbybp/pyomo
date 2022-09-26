@@ -1,9 +1,10 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and 
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain 
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
+#  Under the terms of Contract DE-NA0003525 with National Technology and
+#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
@@ -82,8 +83,8 @@ class LP_trivial_constraints(_BaseTestModel):
             assert id(self.model.d[i]) not in symbol_map.byObject
         else:
             for i in self.model.c:
-                tester.assertTrue(id(self.model.c[i]) in symbol_map.byObject)
-            tester.assertTrue(id(self.model.d) not in symbol_map.byObject)
+                tester.assertIn(id(self.model.c[i]), symbol_map.byObject)
+            tester.assertNotIn(id(self.model.d), symbol_map.byObject)
 
 @register_model
 class LP_trivial_constraints_kernel(LP_trivial_constraints):

@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -33,6 +34,7 @@ class _no_ctype(object):
 # AML classes (which are the ctypes used by all of the
 # solver interfaces) to Kernel classes
 _convert_ctype = {}
+_kernel_ctype_backmap = {}
 
 def _convert_descend_into(value):
     """Converts the descend_into keyword to a function"""

@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -208,7 +209,11 @@ class StandardRepn(object):
             else:
                 expr += c*term
 
-        if not self.nonlinear_expr is None:
+        if self.nonlinear_expr is not None:
+            if expr.__class__ in native_numeric_types and expr == 0:
+                # Some "NL" expressions do not support addition
+                # (e.g. relational expressions)
+                return self.nonlinear_expr
             expr += self.nonlinear_expr
         return expr
 
@@ -858,7 +863,10 @@ def _collect_linear(exp, multiplier, idMap, compute_values, verbose, quadratic):
     return ans
 
 def _collect_comparison(exp, multiplier, idMap, compute_values, verbose, quadratic):
-    return Results(nonl=multiplier*exp)
+    if multiplier != 1:
+        # this *will* generate an exception with the new relational expressions
+        exp = multiplier * exp
+    return Results(nonl=exp)
 
 def _collect_external_fn(exp, multiplier, idMap, compute_values, verbose, quadratic):
     if compute_values and exp.is_fixed():
@@ -913,7 +921,7 @@ def _collect_standard_repn(exp, multiplier, idMap,
     #
     # Catch any known numeric constants
     #
-    if exp.__class__ in native_numeric_types:
+    if exp.__class__ in native_numeric_types or not exp.is_potentially_variable():
         return _collect_const(exp, multiplier, idMap, compute_values,
                               verbose, quadratic)
     #

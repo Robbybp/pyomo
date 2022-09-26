@@ -1,9 +1,10 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and 
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain 
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
+#  Under the terms of Contract DE-NA0003525 with National Technology and
+#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
@@ -20,6 +21,8 @@ from pyomo.core.expr import current as EXPR
 from pyomo.core.base.var import Var
 from pyomo.core.base.expression import Expression
 from pyomo.core.base.component import _ComponentBase
+import logging
+logger = logging.getLogger(__name__)
 
 def prod(terms):
     """
@@ -65,6 +68,14 @@ def quicksum(args, start=0, linear=None):
     Returns:
         The value of the sum, which may be a Pyomo expression object.
     """
+
+    # Ensure that args is an iterator (this manages things like IndexedComponent_slice objects)
+    try:
+        args = iter(args)
+    except:
+        logger.error('The argument `args` to quicksum() is not iterable!')
+        raise
+
     #
     # If we're starting with a numeric value, then 
     # create a new nonlinear sum expression but 
@@ -75,14 +86,7 @@ def quicksum(args, start=0, linear=None):
             #
             # Get the first term, which we will test for linearity
             #
-            try:
-                first = next(args, None)
-            except:
-                try:
-                    args = args.__iter__()
-                    first = next(args, None)
-                except:
-                    raise RuntimeError("The argument to quicksum() is not iterable!")
+            first = next(args, None)
             if first is None:
                 return start
             #
@@ -113,8 +117,12 @@ def quicksum(args, start=0, linear=None):
                 e += start
                 for arg in args:
                     e += arg
-            # Return the constant term if the linear expression does not contains variables
-            if e.is_constant():
+            # Return the constant term if the linear expression does not
+            # contain variables
+            #
+            # getattr() because the linear expression may not have ended
+            # up being linear (and e could be a SumExpression)
+            if not getattr(e, 'linear_vars', True):
                 return e.constant
             return e
         else:

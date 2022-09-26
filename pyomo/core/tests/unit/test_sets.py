@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -2978,8 +2979,8 @@ class TestSetErrors(PyomoModel):
         b=Set(a)
         with self.assertRaisesRegex(
                 #TypeError, "Cannot apply a Set operator to an indexed"):
-                ValueError, "Error retrieving component IndexedSet\[None\]: "
-                "The component has not been constructed."):
+                ValueError, r"Error retrieving component IndexedSet\[None\]: "
+                r"The component has not been constructed."):
             c=Set(within=b, dimen=2)
             c.construct()
 

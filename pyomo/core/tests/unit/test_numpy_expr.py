@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -21,7 +22,7 @@ from pyomo.environ import (
 from pyomo.core.expr.current import MonomialTermExpression
 from pyomo.core.expr.numvalue import NumericNDArray, as_numeric
 from pyomo.core.expr.compare import compare_expressions
-from pyomo.core.expr.logical_expr import InequalityExpression
+from pyomo.core.expr.relational_expr import InequalityExpression
 
 from pyomo.repn import generate_standard_repn
 

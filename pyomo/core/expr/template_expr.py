@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -17,9 +18,9 @@ import builtins
 from pyomo.core.expr.expr_errors import TemplateExpressionError
 from pyomo.core.expr.numvalue import (
     NumericValue, native_types, nonpyomo_leaf_types,
-    as_numeric, value,
+    as_numeric, value, is_constant
 )
-from pyomo.core.expr.numeric_expr import ExpressionBase, SumExpression
+from pyomo.core.expr.numeric_expr import NumericExpression, SumExpression
 from pyomo.core.expr.visitor import (
     ExpressionReplacementVisitor, StreamBasedExpressionVisitor
 )
@@ -28,14 +29,11 @@ logger = logging.getLogger(__name__)
 
 class _NotSpecified(object): pass
 
-class GetItemExpression(ExpressionBase):
+class GetItemExpression(NumericExpression):
     """
     Expression to call :func:`__getitem__` on the base object.
     """
     PRECEDENCE = 1
-
-    def _precedence(self):
-        return GetItemExpression.PRECEDENCE
 
     def __init__(self, args):
         """Construct an expression with an operation and a set of arguments"""
@@ -117,7 +115,7 @@ class GetItemExpression(ExpressionBase):
             obj = value(obj)
         return obj
 
-    def _to_string(self, values, verbose, smap, compute_values):
+    def _to_string(self, values, verbose, smap):
         values = tuple(_[1:-1] if _[0]=='(' and _[-1]==')' else _
                        for _ in values)
         if verbose:
@@ -128,15 +126,12 @@ class GetItemExpression(ExpressionBase):
         return args[0].__getitem__(tuple(args[1:]))
 
 
-class GetAttrExpression(ExpressionBase):
+class GetAttrExpression(NumericExpression):
     """
     Expression to call :func:`__getattr__` on the base object.
     """
     __slots__ = ()
     PRECEDENCE = 1
-
-    def _precedence(self):
-        return GetAttrExpression.PRECEDENCE
 
     def nargs(self):
         return len(self._args_)
@@ -175,7 +170,7 @@ class GetAttrExpression(ExpressionBase):
             obj = value(obj)
         return obj
 
-    def _to_string(self, values, verbose, smap, compute_values):
+    def _to_string(self, values, verbose, smap):
         assert len(values) == 2
         if verbose:
             return "getattr(%s, %s)" % tuple(values)
@@ -266,15 +261,12 @@ class _TemplateSumExpression_argList(object):
                     iterGroup[j].set_value(v, self._lock)
 
 
-class TemplateSumExpression(ExpressionBase):
+class TemplateSumExpression(NumericExpression):
     """
     Expression to represent an unexpanded sum over one or more sets.
     """
     __slots__ = ('_iters', '_local_args_')
     PRECEDENCE = 1
-
-    def _precedence(self):
-        return TemplateSumExpression.PRECEDENCE
 
     def __init__(self, args, _iters):
         assert len(args) == 1
@@ -330,7 +322,7 @@ class TemplateSumExpression(ExpressionBase):
     def _apply_operation(self, result):
         return sum(result)
 
-    def _to_string(self, values, verbose, smap, compute_values):
+    def _to_string(self, values, verbose, smap):
         ans = ''
         val = values[0]
         if val[0]=='(' and val[-1]==')' and _balanced_parens(val[1:-1]):
@@ -431,12 +423,6 @@ class IndexTemplate(NumericValue):
         """
         return True
 
-    def is_constant(self):
-        """
-        Returns False because this cannot immediately be simplified.
-        """
-        return False
-
     def is_potentially_variable(self):
         """Returns False because index values cannot be variables.
 
@@ -516,7 +502,10 @@ def resolve_template(expr):
         if len(args) == node.nargs() and all(
                 a is b for a,b in zip(node.args, args)):
             return node
-        return node.create_node_with_local_data(args)
+        if all(map(is_constant, args)):
+            return node._apply_operation(args)
+        else:
+            return node.create_node_with_local_data(args)
 
     return StreamBasedExpressionVisitor(
         initializeWalker=lambda x: beforeChild(None, x, None),

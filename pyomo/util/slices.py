@@ -1,13 +1,15 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
 
+from pyomo.common.collections import ComponentSet
 from pyomo.core.base.indexed_component import normalize_index
 from pyomo.core.base.indexed_component_slice import IndexedComponent_slice
 from pyomo.core.base.global_set import UnindexedComponent_set
@@ -103,6 +105,12 @@ def slice_component_along_sets(comp, sets, context=None):
         Slice of `comp` with wildcards replacing the indices of `sets`    
 
     """
+    # Cast to ComponentSet so a tuple or list of sets is an appropriate
+    # argument. Otherwise a tuple or list of sets will potentially
+    # silently do the wrong thing (as inclusion in a tuple or list does
+    # not distinguish between different sets with the same elements).
+    sets = ComponentSet(sets)
+
     if context is None:
         context = comp.model()
     call_stack = get_component_call_stack(comp, context)
@@ -122,6 +130,8 @@ def slice_component_along_sets(comp, sets, context=None):
             # Process arg to replace desired indices with slices.
             location_set_map = get_location_set_map(arg, index_set)
             arg = replace_indices(arg, location_set_map, sets)
+            if normalize_index.flatten:
+                arg = normalize_index(arg)
             sliced_comp = sliced_comp[arg]
 
     return sliced_comp
@@ -145,6 +155,7 @@ def replace_indices(index, location_set_map, sets):
     `tuple`: Index with values replaced by slices
 
     """
+    sets = ComponentSet(sets)
     index = tuple(_to_iterable(index))
     new_index = []
     loc = 0

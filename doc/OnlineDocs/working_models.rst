@@ -184,7 +184,7 @@ The final lines in the outer for loop find a solution and display it:
 
    >>> results = opt.solve(instance, load_solutions=False) # doctest: +SKIP
    
-   This approach can be usefull if there is a concern that the solver
+   This approach can be useful if there is a concern that the solver
    did not terminate with an optimal solution. For example,
    
    >>> results = opt.solve(instance, load_solutions=False) # doctest: +SKIP
@@ -297,11 +297,11 @@ this document on ``Var`` access :ref:`VarAccess`.
 
 Note that
 
-   >>> instance.x.fix(2)
+   >>> instance.x.fix(1)
 
 is equivalent to
 
-   >>> instance.x.value = 2
+   >>> instance.x.value = 1
    >>> instance.x.fixed = True
 
 and
@@ -340,7 +340,6 @@ of the objective function object. Here is a simple example:
    >>> print ("------------- extend obj --------------") # doctest: +SKIP
    >>> model.obj.expr += 10 * model.y
 
-   >>> opt = SolverFactory('cplex') # doctest: +SKIP
    >>> opt.solve(model) # doctest: +SKIP
    >>> model.pprint() # doctest: +SKIP
 

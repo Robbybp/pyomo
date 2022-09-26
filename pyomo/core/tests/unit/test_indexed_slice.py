@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -15,7 +16,7 @@ import pickle
 
 import pyomo.common.unittest as unittest
 
-from pyomo.environ import Var, Block, ConcreteModel, RangeSet, Set
+from pyomo.environ import Var, Block, ConcreteModel, RangeSet, Set, Any
 from pyomo.core.base.block import _BlockData
 from pyomo.core.base.indexed_component_slice import IndexedComponent_slice
 from pyomo.core.base.set import normalize_index
@@ -156,6 +157,16 @@ class TestComponentSlices(unittest.TestCase):
         self.assertRaisesRegex(
             IndexError, 'wildcard slice .* can only appear once',
             self.m.b.__getitem__, (Ellipsis,Ellipsis) )
+
+    def test_any_slice(self):
+        m = ConcreteModel()
+        m.x = Var(Any, dense=False)
+        m.x[1] = 1
+        m.x[1,1] = 2
+        m.x[2] = 3
+        self.assertEqual(list(str(_) for _ in m.x[:]), ['x[1]', 'x[2]'])
+        self.assertEqual(list(str(_) for _ in m.x[:,:]), ['x[1,1]'])
+        self.assertEqual(list(str(_) for _ in m.x[...]), ['x[1]', 'x[1,1]', 'x[2]'])
 
 
     def test_nonterminal_slice(self):
@@ -724,6 +735,12 @@ class TestComponentSlices(unittest.TestCase):
             str(IndexedComponent_slice(
                 s, (IndexedComponent_slice.set_attribute, 'bogus', 10))),
             'b[...].bogus = 10')
+
+    def test_slice_to_componentdata(self):
+        m = ConcreteModel()
+        m.x = Var([1,2])
+        i = IndexedComponent_slice(m.x, None, None, None)[2]
+        self.assertEqual(list(i), [m.x[2]])
 
 if __name__ == "__main__":
     unittest.main()

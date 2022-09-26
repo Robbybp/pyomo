@@ -40,6 +40,10 @@ model_list = [EightProcessFlowsheet(convex=True),
 class TestMindtPy(unittest.TestCase):
     """Tests for the MindtPy solver."""
 
+    def check_optimal_solution(self, model, places=1):
+        for var in model.optimal_solution:
+            self.assertAlmostEqual(var.value, model.optimal_solution[var], places=places)
+
     def get_config(self, solver):
         config = solver.CONFIG
         return config
@@ -48,11 +52,10 @@ class TestMindtPy(unittest.TestCase):
         """Test the feasibility pump algorithm."""
         with SolverFactory('mindtpy') as opt:
             for model in model_list:
-                # print('\n Solving 8PP problem using feasibility pump')
                 results = opt.solve(model, strategy='FP',
                                     mip_solver=required_solvers[1],
                                     nlp_solver=required_solvers[0],
-                                    bound_tolerance=1E-5)
+                                    absolute_bound_tolerance=1E-5)
                 log_infeasible_constraints(model)
                 self.assertTrue(is_feasible(model, self.get_config(opt)))
 
@@ -64,12 +67,13 @@ class TestMindtPy(unittest.TestCase):
                                     init_strategy='FP',
                                     mip_solver=required_solvers[1],
                                     nlp_solver=required_solvers[0],
-                                    # bound_tolerance=1E-5
+                                    # absolute_bound_tolerance=1E-5
                                     )
                 self.assertIn(results.solver.termination_condition,
                               [TerminationCondition.optimal, TerminationCondition.feasible])
                 self.assertAlmostEqual(
                     value(model.objective.expr), model.optimal_value, places=1)
+                self.check_optimal_solution(model)
 
 
 if __name__ == '__main__':

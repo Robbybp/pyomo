@@ -1,9 +1,10 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and 
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain 
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
+#  Under the terms of Contract DE-NA0003525 with National Technology and
+#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
@@ -75,9 +76,9 @@ class SymbolMap(object):
 
         This method assumes that symbol names will not conflict.
         """
-        tuples = [(obj, symb) for obj,symb in obj_symbol_tuples]
-        self.byObject.update((id(obj_), symb_) for obj_,symb_ in tuples)
-        self.bySymbol.update((symb_, weakref_ref(obj_)) for obj_,symb_ in tuples)
+        for obj, symbol in obj_symbol_tuples:
+            self.byObject[id(obj)] = symbol
+            self.bySymbol[symbol] = weakref_ref(obj)
 
     def createSymbol(self, obj, labeler=None, *args):
         """

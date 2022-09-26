@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -21,6 +22,7 @@ import os
 import time
 from math import isclose
 
+from pyomo.common.fileutils import find_library
 from pyomo.common.gc_manager import PauseGC
 from pyomo.opt import ProblemFormat, AbstractProblemWriter, WriterFactory
 from pyomo.core.expr import current as EXPR
@@ -58,6 +60,10 @@ def set_pyomo_amplfunc_env(external_libs):
     env_str = ''
     for _lib in external_libs:
         _lib = _lib.strip()
+        # Convert the library to an absolute path
+        _abs_lib = find_library(_lib)
+        if _abs_lib is not None:
+            _lib = _abs_lib
         if ( ' ' not in _lib
              or ( _lib[0]=='"' and _lib[-1]=='"'
                   and '"' not in _lib[1:-1] )
@@ -98,8 +104,8 @@ _intrinsic_function_operators = {
     'atanh':  'o47',
     'pow':    'o5',
     'abs':    'o15',
-    'ceil':   'o13',
-    'floor':  'o14'
+    'ceil':   'o14',
+    'floor':  'o13'
 }
 
 # build string templates
@@ -283,7 +289,8 @@ class RepnWrapper(object):
         self.nonlinear_vars = nonlinear
 
 
-@WriterFactory.register('nl', 'Generate the corresponding AMPL NL file.')
+@WriterFactory.register(
+    'nl_v1', 'Generate the corresponding AMPL NL file (version 1).')
 class ProblemWriter_nl(AbstractProblemWriter):
 
 
@@ -353,6 +360,10 @@ class ProblemWriter_nl(AbstractProblemWriter):
         # nl-file
         export_nonlinear_variables = \
             io_options.pop("export_nonlinear_variables", False)
+
+        # column_order is a new option supported by the nl writer v2
+        _column_order = io_options.pop("column_order", True)
+        assert _column_order in {True,}
 
         if len(io_options):
             raise ValueError(
@@ -592,7 +603,24 @@ class ProblemWriter_nl(AbstractProblemWriter):
                                     exp.name))
                 for arg in exp.args:
                     if isinstance(arg, str):
-                        OUTPUT.write(string_arg_str % (len(arg), arg))
+                        # Note: ASL does not handle '\r\n' as the EOL
+                        # marker for string arguments (even though it
+                        # allows them elsewhere in the NL file).
+                        # Since we know we opened this file object (and
+                        # that it points to an actual file), we will
+                        # grab the underlying fileno and write to it
+                        # WITHOUT universal newlines.
+                        #
+                        # We could just switch the NL writer to always
+                        # write out UNIX-style line endings, but that
+                        # would force us to change a large number of
+                        # baselines / file comparisons
+                        OUTPUT.flush()
+                        with os.fdopen(OUTPUT.fileno(),
+                                       mode='w+',
+                                       closefd=False,
+                                       newline='\n') as TMP:
+                            TMP.write(string_arg_str % (len(arg), arg))
                     elif type(arg) in native_numeric_types:
                         self._print_nonlinear_terms_NL(arg)
                     elif arg.is_fixed():

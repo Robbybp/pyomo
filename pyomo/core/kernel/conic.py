@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -97,13 +98,23 @@ class _ConicBase(IConstraint):
         return self._body
 
     @property
+    def lower(self):
+        """The expression for the lower bound of the constraint"""
+        return None
+
+    @property
+    def upper(self):
+        """The expression for the upper bound of the constraint"""
+        return 0.0
+
+    @property
     def lb(self):
-        """The lower bound of the constraint"""
+        """The value of the lower bound of the constraint"""
         return None
 
     @property
     def ub(self):
-        """The upper bound of the constraint"""
+        """The value of the upper bound of the constraint"""
         return 0.0
 
     @property

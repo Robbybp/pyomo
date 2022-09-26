@@ -4,8 +4,6 @@
 [![Documentation Status](https://readthedocs.org/projects/pyomo/badge/?version=latest)](http://pyomo.readthedocs.org/en/latest/)
 [![GitHub contributors](https://img.shields.io/github/contributors/pyomo/pyomo.svg)](https://github.com/pyomo/pyomo/graphs/contributors)
 [![Merged PRs](https://img.shields.io/github/issues-pr-closed-raw/pyomo/pyomo.svg?label=merged+PRs)](https://github.com/pyomo/pyomo/pulls?q=is:pr+is:merged)
-[![Issue stats](http://isitmaintained.com/badge/resolution/pyomo/pyomo.svg)](http://isitmaintained.com/project/pyomo/pyomo)
-[![Project Status: Active - The project has reached a stable, usable state and is being actively developed.](http://www.repostatus.org/badges/latest/active.svg)](http://www.repostatus.org/#active)
 
 [![a COIN-OR project](https://www.coin-or.org/GitHub/coin-or-badge.png)](https://www.coin-or.org)
 
@@ -43,7 +41,6 @@ subproblems using Python parallel communication libraries.
 * [Download](http://www.pyomo.org/installation/)
 * [Documentation](http://www.pyomo.org/documentation/)
 * [Performance Plots](https://software.sandia.gov/downloads/pub/pyomo/performance/index.html)
-* [Blog](http://www.pyomo.org/blog/)
 
 Pyomo was formerly released as the Coopr software library.
 
@@ -51,8 +48,8 @@ Pyomo is available under the BSD License, see the LICENSE.txt file.
 
 Pyomo is currently tested with the following Python implementations:
 
-* CPython: 3.6, 3.7, 3.8, 3.9
-* PyPy: 3
+* CPython: 3.7, 3.8, 3.9, 3.10
+* PyPy: 3.7, 3.8, 3.9
 
 ### Installation
 

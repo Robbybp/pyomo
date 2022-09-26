@@ -1,9 +1,10 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and 
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain 
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
+#  Under the terms of Contract DE-NA0003525 with National Technology and
+#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
@@ -11,7 +12,9 @@
 import pickle
 
 import pyomo.common.unittest as unittest
-from pyomo.core.expr import logical_expr
+from pyomo.core.expr.current import (
+    inequality, RangedExpression, EqualityExpression,
+)
 from pyomo.kernel import pprint
 from pyomo.core.tests.unit.kernel.test_dict_container import \
     _TestActiveDictContainerBase
@@ -170,68 +173,68 @@ class Test_constraint(unittest.TestCase):
         c.equality = False
         pL = parameter()
         c.lb = pL
-        self.assertIs(c.lb, pL)
+        self.assertIs(c.lower, pL)
         pU = parameter()
         c.ub = pU
-        self.assertIs(c.ub, pU)
+        self.assertIs(c.upper, pU)
 
         with self.assertRaises(ValueError):
             self.assertEqual(c.has_lb(), False)
-        self.assertIs(c.lb, pL)
+        self.assertIs(c.lower, pL)
         with self.assertRaises(ValueError):
             self.assertEqual(c.has_ub(), False)
-        self.assertIs(c.ub, pU)
+        self.assertIs(c.upper, pU)
 
         pL.value = float('-inf')
         self.assertEqual(c.has_lb(), False)
-        self.assertEqual(c.lb(), float('-inf'))
+        self.assertEqual(c.lb, float('-inf'))
         with self.assertRaises(ValueError):
             self.assertEqual(c.has_ub(), False)
-        self.assertIs(c.ub, pU)
+        self.assertIs(c.upper, pU)
 
         pU.value = float('inf')
         self.assertEqual(c.has_lb(), False)
-        self.assertEqual(c.lb(), float('-inf'))
+        self.assertEqual(c.lb, float('-inf'))
         self.assertEqual(c.has_ub(), False)
-        self.assertEqual(c.ub(), float('inf'))
+        self.assertEqual(c.ub, float('inf'))
 
         pL.value = 0
         self.assertEqual(c.has_lb(), True)
-        self.assertEqual(c.lb(), 0)
+        self.assertEqual(c.lb, 0)
         self.assertEqual(c.has_ub(), False)
-        self.assertEqual(c.ub(), float('inf'))
+        self.assertEqual(c.ub, float('inf'))
 
         pU.value = 0
         self.assertEqual(c.has_lb(), True)
-        self.assertEqual(c.lb(), 0)
+        self.assertEqual(c.lb, 0)
         self.assertEqual(c.has_ub(), True)
-        self.assertEqual(c.ub(), 0)
+        self.assertEqual(c.ub, 0)
 
         pL.value = float('inf')
         self.assertEqual(c.has_lb(), True)
-        self.assertEqual(c.lb(), float('inf'))
+        self.assertEqual(c.lb, float('inf'))
         self.assertEqual(c.has_ub(), True)
-        self.assertEqual(c.ub(), 0)
+        self.assertEqual(c.ub, 0)
 
         pU.value = float('-inf')
         self.assertEqual(c.has_lb(), True)
-        self.assertEqual(c.lb(), float('inf'))
+        self.assertEqual(c.lb, float('inf'))
         self.assertEqual(c.has_ub(), True)
-        self.assertEqual(c.ub(), float('-inf'))
+        self.assertEqual(c.ub, float('-inf'))
 
         pL.value = float('inf')
         c.rhs = pL
         self.assertEqual(c.has_lb(), True)
-        self.assertEqual(c.lb(), float('inf'))
+        self.assertEqual(c.lb, float('inf'))
         self.assertEqual(c.has_ub(), False)
-        self.assertEqual(c.ub(), float('inf'))
+        self.assertEqual(c.ub, float('inf'))
 
         pL.value = float('-inf')
         c.rhs = pL
         self.assertEqual(c.has_lb(), False)
-        self.assertEqual(c.lb(), float('-inf'))
+        self.assertEqual(c.lb, float('-inf'))
         self.assertEqual(c.has_ub(), True)
-        self.assertEqual(c.ub(), float('-inf'))
+        self.assertEqual(c.ub, float('-inf'))
 
     def test_bounds_getter_setter(self):
         c = constraint()
@@ -567,32 +570,32 @@ class Test_constraint(unittest.TestCase):
         pU = parameter()
         c.expr = (pL, e, pU)
         self.assertIs(c.body, e)
-        self.assertIs(c.lb, pL)
-        self.assertIs(c.ub, pU)
+        self.assertIs(c.lower, pL)
+        self.assertIs(c.upper, pU)
         e.expr = None
         self.assertIs(c.body, e)
-        self.assertIs(c.lb, pL)
-        self.assertIs(c.ub, pU)
+        self.assertIs(c.lower, pL)
+        self.assertIs(c.upper, pU)
         c.expr = (pL, e, pU)
         self.assertIs(c.body, e)
-        self.assertIs(c.lb, pL)
-        self.assertIs(c.ub, pU)
+        self.assertIs(c.lower, pL)
+        self.assertIs(c.upper, pU)
 
         e.expr = 1.0
         eL = data_expression()
         eU = data_expression()
         c.expr = (eL, e, eU)
         self.assertIs(c.body, e)
-        self.assertIs(c.lb, eL)
-        self.assertIs(c.ub, eU)
+        self.assertIs(c.lower, eL)
+        self.assertIs(c.upper, eU)
         e.expr = None
         self.assertIs(c.body, e)
-        self.assertIs(c.lb, eL)
-        self.assertIs(c.ub, eU)
+        self.assertIs(c.lower, eL)
+        self.assertIs(c.upper, eU)
         c.expr = (eL, e, eU)
         self.assertIs(c.body, e)
-        self.assertIs(c.lb, eL)
-        self.assertIs(c.ub, eU)
+        self.assertIs(c.lower, eL)
+        self.assertIs(c.upper, eU)
 
     # make sure we can use a mutable param that
     # has not been given a value in the upper bound
@@ -606,7 +609,7 @@ class Test_constraint(unittest.TestCase):
         self.assertEqual(c.equality, False)
 
         c = constraint(expr=p <= x)
-        self.assertTrue(c.lb is p)
+        self.assertIs(c.lower, p)
         self.assertEqual(c.equality, False)
 
         c = constraint(expr=p <= x + 1)
@@ -625,7 +628,7 @@ class Test_constraint(unittest.TestCase):
         self.assertEqual(c.equality, False)
 
         c = constraint(expr=x >= p)
-        self.assertTrue(c.lb is p)
+        self.assertIs(c.lower, p)
         self.assertEqual(c.equality, False)
 
         c = constraint(expr=x + 1 >= p)
@@ -638,7 +641,7 @@ class Test_constraint(unittest.TestCase):
         self.assertEqual(c.equality, False)
 
         c = constraint(expr=(p, x, None))
-        self.assertTrue(c.lb is p)
+        self.assertIs(c.lower, p)
         self.assertEqual(c.equality, False)
 
         c = constraint(expr=(p, x + 1, None))
@@ -662,7 +665,7 @@ class Test_constraint(unittest.TestCase):
         self.assertEqual(c.equality, False)
 
         c = constraint(expr=x <= p)
-        self.assertTrue(c.ub is p)
+        self.assertIs(c.upper, p)
         self.assertEqual(c.equality, False)
 
         c = constraint(expr=x + 1 <= p)
@@ -681,7 +684,7 @@ class Test_constraint(unittest.TestCase):
         self.assertEqual(c.equality, False)
 
         c = constraint(expr=p >= x)
-        self.assertTrue(c.ub is p)
+        self.assertIs(c.upper, p)
         self.assertEqual(c.equality, False)
 
         c = constraint(expr=p >= x + 1)
@@ -694,7 +697,7 @@ class Test_constraint(unittest.TestCase):
         self.assertEqual(c.equality, False)
 
         c = constraint(expr=(None, x, p))
-        self.assertTrue(c.ub is p)
+        self.assertIs(c.upper, p)
         self.assertEqual(c.equality, False)
 
         c = constraint(expr=(None, x + 1, p))
@@ -718,7 +721,7 @@ class Test_constraint(unittest.TestCase):
         self.assertEqual(c.equality, True)
 
         c = constraint(expr=x == p)
-        self.assertTrue(c.ub is p)
+        self.assertIs(c.upper, p)
         self.assertEqual(c.equality, True)
 
         c = constraint(expr=x + 1 == p)
@@ -731,30 +734,30 @@ class Test_constraint(unittest.TestCase):
         self.assertEqual(c.equality, True)
 
         c = constraint(expr=(x, p))
-        self.assertTrue(c.ub is p)
-        self.assertTrue(c.lb is p)
-        self.assertTrue(c.rhs is p)
+        self.assertIs(c.upper, p)
+        self.assertIs(c.lower, p)
+        self.assertIs(c.rhs, p)
         self.assertIs(c.body, x)
         self.assertEqual(c.equality, True)
 
         c = constraint(expr=(p, x))
-        self.assertTrue(c.ub is p)
-        self.assertTrue(c.lb is p)
-        self.assertTrue(c.rhs is p)
+        self.assertIs(c.upper, p)
+        self.assertIs(c.lower, p)
+        self.assertIs(c.rhs, p)
         self.assertIs(c.body, x)
         self.assertEqual(c.equality, True)
 
-        c = constraint(expr=logical_expr.EqualityExpression((p, x)))
-        self.assertTrue(c.ub is p)
-        self.assertTrue(c.lb is p)
-        self.assertTrue(c.rhs is p)
+        c = constraint(expr=EqualityExpression((p, x)))
+        self.assertIs(c.upper, p)
+        self.assertIs(c.lower, p)
+        self.assertIs(c.rhs, p)
         self.assertIs(c.body, x)
         self.assertEqual(c.equality, True)
 
-        c = constraint(expr=logical_expr.EqualityExpression((x, p)))
-        self.assertTrue(c.ub is p)
-        self.assertTrue(c.lb is p)
-        self.assertTrue(c.rhs is p)
+        c = constraint(expr=EqualityExpression((x, p)))
+        self.assertIs(c.upper, p)
+        self.assertIs(c.lower, p)
+        self.assertIs(c.rhs, p)
         self.assertIs(c.body, x)
         self.assertEqual(c.equality, True)
 
@@ -878,10 +881,10 @@ class Test_constraint(unittest.TestCase):
         y = variable()
         z = variable()
         with self.assertRaises(ValueError):
-            constraint(logical_expr.RangedExpression((x, y, 1), (False, False)))
+            constraint(RangedExpression((x, y, 1), (False, False)))
 
         with self.assertRaises(ValueError):
-            constraint(logical_expr.RangedExpression((0, y, z), (False, False)))
+            constraint(RangedExpression((0, y, z), (False, False)))
 
     def test_expr_construct_equality(self):
         x = variable(value=1)
@@ -927,34 +930,34 @@ class Test_constraint(unittest.TestCase):
         with self.assertRaises(ValueError):
             c.expr = (x < 0)
         with self.assertRaises(ValueError):
-            c.expr = logical_expr.inequality(body=x, upper=0, strict=True)
+            c.expr = inequality(body=x, upper=0, strict=True)
         c.expr = (x <= 0)
-        c.expr = logical_expr.inequality(body=x, upper=0, strict=False)
+        c.expr = inequality(body=x, upper=0, strict=False)
         with self.assertRaises(ValueError):
             c.expr = (x > 0)
         with self.assertRaises(ValueError):
-            c.expr = logical_expr.inequality(body=x, lower=0, strict=True)
+            c.expr = inequality(body=x, lower=0, strict=True)
         c.expr = (x >= 0)
-        c.expr = logical_expr.inequality(body=x, lower=0, strict=False)
+        c.expr = inequality(body=x, lower=0, strict=False)
         with self.assertRaises(ValueError):
             c.expr = (x < y)
         with self.assertRaises(ValueError):
-            c.expr = logical_expr.inequality(body=x, upper=y, strict=True)
+            c.expr = inequality(body=x, upper=y, strict=True)
         c.expr = (x <= y)
-        c.expr = logical_expr.inequality(body=x, upper=y, strict=False)
+        c.expr = inequality(body=x, upper=y, strict=False)
         with self.assertRaises(ValueError):
             c.expr = (x > y)
         with self.assertRaises(ValueError):
-            c.expr = logical_expr.inequality(body=x, lower=y, strict=True)
+            c.expr = inequality(body=x, lower=y, strict=True)
         c.expr = (x >= y)
-        c.expr = logical_expr.inequality(body=x, lower=y, strict=False)
+        c.expr = inequality(body=x, lower=y, strict=False)
         with self.assertRaises(ValueError):
-            c.expr = logical_expr.RangedExpression((0, x, 1), (True, True))
+            c.expr = RangedExpression((0, x, 1), (True, True))
         with self.assertRaises(ValueError):
-            c.expr = logical_expr.RangedExpression((0, x, 1), (False, True))
+            c.expr = RangedExpression((0, x, 1), (False, True))
         with self.assertRaises(ValueError):
-            c.expr = logical_expr.RangedExpression((0, x, 1), (True, False))
-        c.expr = logical_expr.RangedExpression((0, x, 1), (False, False))
+            c.expr = RangedExpression((0, x, 1), (True, False))
+        c.expr = RangedExpression((0, x, 1), (False, False))
 
     def test_expr_construct_inf_equality(self):
         x = variable()
@@ -1940,17 +1943,17 @@ class Test_linear_constraint(unittest.TestCase):
         pL = parameter()
         pU = parameter()
         c.lb = pL
-        self.assertIs(c.lb, pL)
+        self.assertIs(c.lower, pL)
         c.ub = pU
-        self.assertIs(c.ub, pU)
+        self.assertIs(c.upper, pU)
 
         e.expr = 1.0
         eL = data_expression()
         eU = data_expression()
         c.lb = eL
-        self.assertIs(c.lb, eL)
+        self.assertIs(c.lower, eL)
         c.ub = eU
-        self.assertIs(c.ub, eU)
+        self.assertIs(c.upper, eU)
 
     def test_call(self):
         c = linear_constraint([],[])

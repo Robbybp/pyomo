@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -31,6 +32,6 @@ def _importer():
 cmodel, cmodel_available = _attempt_import(
     'appsi_cmodel',
     error_message=('Appsi requires building a small c++ extension. '
-                   'Please use thye "pyomo build-extensions" command'),
+                   'Please use the "pyomo build-extensions" command'),
     importer=_importer,
 )

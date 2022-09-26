@@ -1,9 +1,10 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and 
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain 
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
+#  Under the terms of Contract DE-NA0003525 with National Technology and
+#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
@@ -33,7 +34,7 @@ valid_active_ctypes_minlp = {Block, Constraint, Objective, Suffix}
 _ftoa_precision_str = '%.17g'
 
 
-def ftoa(val):
+def ftoa(val, parenthesize_negative_values=False):
     if val is None:
         return val
     #
@@ -71,4 +72,7 @@ def ftoa(val):
         logger.warning(
             "Converting %s to string resulted in loss of precision" % val)
     #
-    return a[:i]
+    if parenthesize_negative_values and a[0] == '-':
+        return '(' + a[:i] + ')'
+    else:
+        return a[:i]

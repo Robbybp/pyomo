@@ -1,9 +1,10 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and 
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain 
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
+#  Under the terms of Contract DE-NA0003525 with National Technology and
+#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
@@ -85,7 +86,12 @@ def generate_strongly_connected_components(
         yield (block, inputs)
 
 
-def solve_strongly_connected_components(block, solver=None, solve_kwds=None):
+def solve_strongly_connected_components(
+        block,
+        solver=None,
+        solve_kwds=None,
+        calc_var_kwds=None,
+        ):
     """ This function solves a square block of variables and equality
     constraints by solving strongly connected components individually.
     Strongly connected components (of the directed graph of constraints
@@ -93,6 +99,10 @@ def solve_strongly_connected_components(block, solver=None, solve_kwds=None):
     the diagonal blocks in a block triangularization of the incidence
     matrix, so solving the strongly connected components in topological
     order is sufficient to solve the entire block.
+
+    One-by-one blocks are solved using Pyomo's
+    calculate_variable_from_constraint function, while higher-dimension
+    blocks are solved using the user-provided solver object.
 
     Arguments
     ---------
@@ -104,6 +114,8 @@ def solve_strongly_connected_components(block, solver=None, solve_kwds=None):
         a solve method.
     solve_kwds: Dictionary
         Keyword arguments for the solver's solve method
+    calc_var_kwds: Dictionary
+        Keyword arguments for calculate_variable_from_constraint
 
     Returns
     -------
@@ -112,6 +124,8 @@ def solve_strongly_connected_components(block, solver=None, solve_kwds=None):
     """
     if solve_kwds is None:
         solve_kwds = {}
+    if calc_var_kwds is None:
+        calc_var_kwds = {}
 
     constraints = list(block.component_data_objects(Constraint, active=True))
     var_set = ComponentSet()
@@ -130,7 +144,10 @@ def solve_strongly_connected_components(block, solver=None, solve_kwds=None):
             ):
         with TemporarySubsystemManager(to_fix=inputs):
             if len(scc.vars) == 1:
-                calculate_variable_from_constraint(scc.vars[0], scc.cons[0])
+                results = calculate_variable_from_constraint(
+                    scc.vars[0], scc.cons[0], **calc_var_kwds
+                )
+                res_list.append(results)
             else:
                 if solver is None:
                     # NOTE: Use local name to avoid slow generation of this

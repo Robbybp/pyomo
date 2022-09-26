@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -584,7 +585,7 @@ class TestTemplateSubstitution(unittest.TestCase):
         t = IndexTemplate(m.TIME)
         e = diffeq(m, t, 2)
 
-        self.assertTrue( isinstance(e, EXPR.ExpressionBase) )
+        self.assertTrue( isinstance(e, EXPR.RelationalExpression) )
 
         _map = {}
         E = substitute_template_expression(
@@ -648,7 +649,7 @@ class TestTemplateSubstitution(unittest.TestCase):
         e = diffeq(m,t, 2)
         t.set_value(5)
 
-        self.assertTrue( isinstance(e, EXPR.ExpressionBase) )
+        self.assertTrue( isinstance(e, EXPR.RelationalExpression) )
         self.assertEqual((e.arg(0)(), e.arg(1)()), (10,126))
 
         E = substitute_template_expression(e, substitute_template_with_value)

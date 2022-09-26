@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -164,6 +165,11 @@ def gurobi_run(model_file, warmstart_file, soln_file, mipgap, options, suffixes)
     elif (solver_status == GRB.TIME_LIMIT):
         status = 'aborted'
         message = 'Optimization terminated because the time expended exceeded the value specified in the TimeLimit parameter.'
+        term_cond = 'maxTimeLimit'
+        solution_status = 'stoppedByLimit'
+    elif hasattr(GRB, "WORK_LIMIT") and (solver_status == GRB.WORK_LIMIT):
+        status = 'aborted'
+        message = 'Optimization terminated because the work expended exceeded the value specified in the WorkLimit parameter.'
         term_cond = 'maxTimeLimit'
         solution_status = 'stoppedByLimit'
     elif (solver_status == GRB.SOLUTION_LIMIT):

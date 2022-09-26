@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -48,7 +49,7 @@ def build_compression_matrix(compression_mask):
     elif type(compression_mask) is np.ndarray:
         cols = compression_mask.nonzero()[0]
         nnz = len(cols)
-        rows = np.arange(nnz, dtype=np.int)
+        rows = np.arange(nnz, dtype=np.int64)
         data = np.ones(nnz)
         return coo_matrix((data, (rows, cols)), shape=(nnz, len(compression_mask)))
     elif isinstance(compression_mask, mpi_block_vector.MPIBlockVector):

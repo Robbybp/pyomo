@@ -1,9 +1,10 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and 
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain 
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
+#  Under the terms of Contract DE-NA0003525 with National Technology and
+#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
@@ -53,7 +54,7 @@ class MPEC_Solver1(pyomo.opt.OptSolver):
             epsilon_final = self.options.get('epsilon_final', 1e-7)
             epsilon = self.options.get('epsilon_initial', epsilon_final)
             while (True):
-                self._instance.mpec_bound.value = epsilon
+                self._instance.mpec_bound.set_value(epsilon)
                 #
                 # **NOTE: It would be better to override _presolve on the
                 #         base class of this solver as you might be

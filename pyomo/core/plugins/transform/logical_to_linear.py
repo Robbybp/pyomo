@@ -11,13 +11,15 @@ from pyomo.core.base.block import _BlockData
 from pyomo.core.base.boolean_var import (
     _DeprecatedImplicitAssociatedBinaryVariable)
 from pyomo.core.expr.cnf_walker import to_cnf
-from pyomo.core.expr.logical_expr import (AndExpression, OrExpression,
-                                          NotExpression, AtLeastExpression,
-                                          AtMostExpression, ExactlyExpression,
-                                          special_boolean_atom_types,
-                                          EqualityExpression,
-                                          InequalityExpression,
-                                          RangedExpression)
+from pyomo.core.expr.current import (
+    AndExpression, OrExpression,
+    NotExpression, AtLeastExpression,
+    AtMostExpression, ExactlyExpression,
+    special_boolean_atom_types,
+    EqualityExpression,
+    InequalityExpression,
+    RangedExpression,
+)
 from pyomo.core.expr.numvalue import native_logical_types, value
 from pyomo.core.expr.visitor import StreamBasedExpressionVisitor
 from pyomo.core.expr.current import identify_variables
@@ -117,24 +119,27 @@ class LogicalToLinear(IsomorphicTransformation):
         for i in constraint.keys(ordered=True):
             self._transform_constraintData(constraint[i], new_varlists,
                                            transBlocks)
+        constraint.deactivate()
 
     def _transform_block(self, target_block, model, new_varlists, transBlocks):
-        for logical_constraint in target_block.component_data_objects(
-                ctype=LogicalConstraint, active=True,
-                descend_into=Block):
-            self._transform_constraintData(logical_constraint, new_varlists,
+        _blocks = target_block.values() if target_block.is_indexed() else \
+                  (target_block,)
+        for block in _blocks:
+            for logical_constraint in block.component_objects(
+                    ctype=LogicalConstraint, active=True, descend_into=Block):
+                self._transform_constraint(logical_constraint, new_varlists,
                                            transBlocks)
 
-        # This can go away when we deprecate this transformation transforming
-        # BooleanVars. This just marks the BooleanVars as "seen" so that if
-        # someone asks for their binary var later, we can create it on the fly
-        # and complain.
-        for bool_vardata in target_block.component_data_objects(
-                BooleanVar, descend_into=Block):
-            if bool_vardata._associated_binary is None:
-                bool_vardata._associated_binary = \
-                        _DeprecatedImplicitAssociatedBinaryVariable(
-                            bool_vardata)
+            # This can go away when we deprecate this transformation
+            # transforming BooleanVars. This just marks the BooleanVars as
+            # "seen" so that if someone asks for their binary var later, we can
+            # create it on the fly and complain.
+            for bool_vardata in block.component_data_objects(
+                    BooleanVar, descend_into=Block):
+                if bool_vardata._associated_binary is None:
+                    bool_vardata._associated_binary = \
+                                _DeprecatedImplicitAssociatedBinaryVariable(
+                                    bool_vardata)
 
     def _transform_constraintData(self, logical_constraint, new_varlists,
                                   transBlocks):
@@ -154,7 +159,7 @@ class LogicalToLinear(IsomorphicTransformation):
         new_constrlist = xfrm_block.transformed_constraints
         new_boolvarlist = xfrm_block.augmented_vars
         new_varlist = xfrm_block.augmented_vars_asbinary
-        
+
         old_boolvarlist_length = len(new_boolvarlist)
 
         indicator_map = ComponentMap()

@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -20,7 +21,7 @@ from .fileutils import (
     # The following will be deprecated soon
     register_executable, registered_executable, unregister_executable
 )
-from . import config, dependencies, timing
+from . import config, dependencies, shutdown, timing
 from .deprecation import deprecated
 from .errors import DeveloperError
 from ._command import pyomo_command, get_pyomo_commands

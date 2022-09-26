@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -15,13 +16,16 @@ from pickle import PickleError
 from weakref import ref as weakref_ref
 
 import pyomo.common
-from pyomo.common.deprecation import deprecated, relocated_module_attribute
+from pyomo.common import DeveloperError
+from pyomo.common.deprecation import (
+    deprecated, deprecation_warning, relocated_module_attribute)
 from pyomo.common.factory import Factory
 from pyomo.common.formatting import tabular_writer, StreamIndenter
 from pyomo.common.modeling import NOTSET
 from pyomo.common.sorting import sorted_robust
 from pyomo.core.pyomoobject import PyomoObject
 from pyomo.core.base.component_namer import name_repr, index_repr
+from pyomo.core.base.global_set import UnindexedComponent_index
 
 logger = logging.getLogger('pyomo.core')
 
@@ -29,6 +33,7 @@ relocated_module_attribute(
     'ComponentUID', 'pyomo.core.base.componentuid.ComponentUID',
     version='5.7.2')
 
+_ref_types = {type(None), weakref_ref}
 
 class ModelComponentFactoryClass(Factory):
 
@@ -135,27 +140,43 @@ class _ComponentBase(PyomoObject):
                 # component is out-of-scope.  shallow copy only
                 ans = memo[id(self)] = self
                 return ans
-
         #
-        # There is a particularly subtle bug with 'uncopyable'
-        # attributes: if the exception is thrown while copying a complex
-        # data structure, we can be in a state where objects have been
-        # created and assigned to the memo in the try block, but they
-        # haven't had their state set yet.  When the exception moves us
-        # into the except block, we need to effectively "undo" those
-        # partially copied classes.  The only way is to restore the memo
-        # to the state it was in before we started.  Right now, our
-        # solution is to make a (shallow) copy of the memo before each
-        # operation and restoring it in the case of exception.
-        # Unfortunately that is a lot of usually unnecessary work.
-        # Since *most* classes are copyable, we will avoid that
-        # "paranoia" unless the naive clone generated an error - in
-        # which case Block.clone() will switch over to the more
-        # "paranoid" mode.
+        # deepcopy() is an inherently recursive operation.  This can
+        # cause problems for highly interconnected Pyomo models (for
+        # example, a time linked model where each time block has a
+        # linking constraint [in the time block] to the next / previous
+        # block).  This would effectively put the entire time horizon on
+        # the stack.  To avoid this, we will leverage the useful
+        # knowledge that all component references point to other
+        # components / component datas, and NOT to attributes on the
+        # components/datas.  So, if we can first go through and stub in
+        # all the objects that we will need to populate,and then go
+        # through and deepcopy them, then we can unroll the vast
+        # majority of the recursion.
         #
-        paranoid = memo.get('__paranoid__', None)
+        component_list = []
+        self._create_objects_for_deepcopy(memo, component_list)
+        #
+        # Now that we have created (but not populated) all the
+        # components that we expect to need, we can go through and
+        # populate all the components.
+        #
+        if '__paranoid__' not in memo:
+            memo['__paranoid__'] = None
+        # The component_list is roughly in declaration order.  This
+        # means that it should be relatively safe to clone the contents
+        # in the same order.
+        for comp in component_list:
+            comp._populate_deepcopied_object(memo)
+        return memo[id(self)]
 
-        ans = memo[id(self)] = self.__class__.__new__(self.__class__)
+    def _create_objects_for_deepcopy(self, memo, component_list):
+        _id = id(self)
+        if _id not in memo:
+            component_list.append(self)
+            memo[_id] = self.__class__.__new__(self.__class__)
+
+    def _populate_deepcopied_object(self, memo):
         # We can't do the "obvious", since this is a (partially)
         # slot-ized class and the __dict__ structure is
         # nonauthoritative:
@@ -175,12 +196,31 @@ class _ComponentBase(PyomoObject):
         # update the _parent refs appropriately, and since this is a
         # slot-ized class, we cannot overwrite the __deepcopy__
         # attribute to prevent infinite recursion.
+        #
         state = self.__getstate__()
+        #
+        # There is a particularly subtle bug with 'uncopyable'
+        # attributes: if the exception is thrown while copying a complex
+        # data structure, we can be in a state where objects have been
+        # created and assigned to the memo in the try block, but they
+        # haven't had their state set yet.  When the exception moves us
+        # into the except block, we need to effectively "undo" those
+        # partially copied classes.  The only way is to restore the memo
+        # to the state it was in before we started.  Right now, our
+        # solution is to make a (shallow) copy of the memo before each
+        # operation and restoring it in the case of exception.
+        # Unfortunately that is a lot of usually unnecessary work.
+        # Since *most* classes are copyable, we will avoid that
+        # "paranoia" unless the naive clone generated an error - in
+        # which case Block.clone() will switch over to the more
+        # "paranoid" mode.
+        #
         try:
-            if paranoid:
+            if memo['__paranoid__']:
                 saved_memo = dict(memo)
             new_state = deepcopy(state, memo)
         except:
+            paranoid = memo['__paranoid__']
             if paranoid:
                 # Note: memo is intentionally pass-by-reference.  We
                 # need to clear and reset the object we were handed (and
@@ -235,8 +275,8 @@ class _ComponentBase(PyomoObject):
                             "Consider changing how you initialize this "
                             "component or using a ConcreteModel."
                             % ( k, self.name ))
-        ans.__setstate__(new_state)
-        return ans
+        memo[id(self)].__setstate__(new_state)
+
 
     @deprecated("""The cname() method has been renamed to getname().
     The preferred method of obtaining a component name is to use the
@@ -399,7 +439,7 @@ class Component(_ComponentBase):
         # Verify that ctype has been specified.
         #
         if self._ctype is None:
-            raise pyomo.common.DeveloperError(
+            raise DeveloperError(
                 "Must specify a component type for class %s!"
                 % ( type(self).__name__, ) )
         #
@@ -440,8 +480,7 @@ class Component(_ComponentBase):
         This method must be defined to support pickling because this class
         owns weakrefs for '_parent'.
         """
-        if state['_parent'] is not None and \
-                type(state['_parent']) is not weakref_ref:
+        if state['_parent'].__class__ not in _ref_types:
             state['_parent'] = weakref_ref(state['_parent'])
         #
         # Note: our model for setstate is for derived classes to modify
@@ -556,11 +595,6 @@ class Component(_ComponentBase):
         fully_qualified: bool
             Generate full name from nested block names
 
-        name_buffer: dict
-            A dictionary that caches encountered names and indices.
-            Providing a ``name_buffer`` can significantly speed up
-            iterative name generation
-
         relative_to: Block
             Generate fully_qualified names reletive to the specified block.
         """
@@ -584,6 +618,13 @@ class Component(_ComponentBase):
             # add quotes or otherwise escape the string.
             ans = local_name
         if name_buffer is not None:
+            deprecation_warning(
+                "The 'name_buffer' argument to getname is deprecated. "
+                "The functionality is no longer necessary since getting names "
+                "is no longer a quadratic operation. Additionally, note that "
+                "use of this argument poses risks if the buffer contains "
+                "names relative to different Blocks in the model hierarchy or "
+                "a mixture of local and fully_qualified names.", version='TODO')
             name_buffer[id(self)] = ans
         return ans
 
@@ -690,11 +731,20 @@ class ComponentData(_ComponentBase):
 
     Private class attributes:
         _component      A weakref to the component that owns this data object
+        _index          The index of this data object
         """
 
-    __pickle_slots__ = ('_component',)
+    __pickle_slots__ = ('_component', '_index')
     __slots__ = __pickle_slots__ + ('__weakref__',)
 
+    # NOTE: This constructor is in-lined in the constructors for the following
+    # classes: _BooleanVarData, _ConnectorData, _ConstraintData,
+    # _GeneralExpressionData, _LogicalConstraintData,
+    # _GeneralLogicalConstraintData, _GeneralObjectiveData,
+    # _ParamData,_GeneralVarData, _GeneralBooleanVarData, _DisjunctionData,
+    # _ArcData, _PortData, _LinearConstraintData, and
+    # _LinearMatrixConstraintData. Changes made here need to be made in those
+    # constructors as well!
     def __init__(self, component):
         #
         # ComponentData objects are typically *private* objects for
@@ -704,6 +754,7 @@ class ComponentData(_ComponentBase):
         # this assumption is significantly faster.
         #
         self._component = weakref_ref(component)
+        self._index = NOTSET
 
     def __getstate__(self):
         """Prepare a picklable state of this instance for pickling.
@@ -741,6 +792,7 @@ class ComponentData(_ComponentBase):
             state['_component'] = None
         else:
             state['_component'] = self._component()
+        state['_index'] = self._index
         return state
 
     def __setstate__(self, state):
@@ -761,8 +813,7 @@ class ComponentData(_ComponentBase):
         # we don't the model cloning appears to fail (in the Benders
         # example)
         #
-        if state['_component'] is not None and \
-                type(state['_component']) is not weakref_ref:
+        if state['_component'].__class__ not in _ref_types:
             state['_component'] = weakref_ref(state['_component'])
         #
         # Note: our model for setstate is for derived classes to modify
@@ -833,17 +884,20 @@ class ComponentData(_ComponentBase):
         to the parent component index set. None is returned if
         this instance does not have a parent component, or if
         - for some unknown reason - this instance does not belong
-        to the parent component's index set. This method is not
-        intended to be a fast method;  it should be used rarely,
-        primarily in cases of label formulation.
+        to the parent component's index set.
         """
-        self_component = self.parent_component()
-        if self_component is None:
-            return None
-        for idx, component_data in self_component.items():
-            if component_data is self:
-                return idx
-        return None
+        parent = self.parent_component()
+        if ( parent is not None and
+             self._index is not NOTSET and
+             parent[self._index] is not self ):
+            # This error message is a bit goofy, but we can't call self.name
+            # here--it's an infinite loop!
+            raise DeveloperError(
+                "The '_data' dictionary and '_index' attribute are out of "
+                "sync for indexed %s '%s': The %s entry in the '_data' "
+                "dictionary does not map back to this component data object."
+                % (parent.ctype.__name__, parent.name, self._index))
+        return self._index
 
     def __str__(self):
         """Return a string with the component name and index"""
@@ -851,12 +905,27 @@ class ComponentData(_ComponentBase):
 
     def getname(self, fully_qualified=False, name_buffer=None, relative_to=None):
         """Return a string with the component name and index"""
+        # NOTE: There are bugs with name buffers if a user always gives the same
+        # dictionary but switches from fully-qualified to local names or changes
+        # the component the name is relative to. We will simply deprecate the
+        # buffer in a future PR, but for now we will leave this method so it
+        # behaves the same when a buffer is given, and, in the absence of a
+        # buffer it will construct the name using the index (woohoo!)
+
         #
         # Using the buffer, which is a dictionary:  id -> string
         #
-        if name_buffer is not None and id(self) in name_buffer:
-            # Return the name if it is in the buffer
-            return name_buffer[id(self)]
+        if name_buffer is not None:
+            deprecation_warning(
+                "The 'name_buffer' argument to getname is deprecated. "
+                "The functionality is no longer necessary since getting names "
+                "is no longer a quadratic operation. Additionally, note that "
+                "use of this argument poses risks if the buffer contains "
+                "names relative to different Blocks in the model hierarchy or "
+                "a mixture of local and fully_qualified names.", version='TODO')
+            if id(self) in name_buffer:
+                # Return the name if it is in the buffer
+                return name_buffer[id(self)]
 
         c = self.parent_component()
         if c is self:
@@ -890,13 +959,10 @@ class ComponentData(_ComponentBase):
                 return name_buffer[id(self)]
         else:
             #
-            # No buffer, so we iterate through the component _data
-            # dictionary until we find this object.  This can be much
-            # more expensive than if a buffer is provided.
+            # No buffer, we can do what we are going to do all the time after we
+            # deprecate the buffer.
             #
-            for idx, obj in c.items():
-                if obj is self:
-                    return base + index_repr(idx)
+            return base + index_repr(self.index())
         #
         raise RuntimeError("Fatal error: cannot find the component data in "
                            "the owning component's _data dictionary.")
@@ -957,6 +1023,7 @@ class ActiveComponentData(ComponentData):
 
     Private class attributes:
         _component      A weakref to the component that owns this data object
+        _index          The index of this data object
         _active         A boolean that indicates whether this data is active
     """
 
@@ -996,4 +1063,3 @@ class ActiveComponentData(ComponentData):
     def deactivate(self):
         """Set the active attribute to False"""
         self._active = False
-

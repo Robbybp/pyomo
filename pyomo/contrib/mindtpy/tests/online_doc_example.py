@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -22,6 +23,7 @@ from __future__ import division
 
 from pyomo.environ import (Binary, ConcreteModel, Constraint,
                            Objective, Var, minimize, log)
+from pyomo.common.collections import ComponentMap
 
 
 class OnlineDocExample(ConcreteModel):
@@ -38,3 +40,6 @@ class OnlineDocExample(ConcreteModel):
         m.c2 = Constraint(expr=m.x*log(m.x) + 5 <= 50.0*(m.y))
         m.objective = Objective(expr=m.x, sense=minimize)
         m.optimal_value = 2.438447
+        m.optimal_solution = ComponentMap()
+        m.optimal_solution[m.x] = 2.4384471855377243
+        m.optimal_solution[m.y] = 1.0

@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -191,7 +192,11 @@ class SymbolicDerivatives(unittest.TestCase):
 
         e = differentiate(acosh(m.x), wrt=m.x)
         self.assertTrue(e.is_expression_type())
-        self.assertEqual(s(e), s((-1.+m.x**2.)**-.5))
+        # Older versions of sympy:
+        if s(e) == s((-1.+m.x**2.)**-.5):
+            pass
+        else:
+            self.assertEqual(s(e), s((1.+m.x)**-.5*(-1.+m.x)**-.5))
 
         e = differentiate(atanh(m.x), wrt=m.x)
         self.assertTrue(e.is_expression_type())

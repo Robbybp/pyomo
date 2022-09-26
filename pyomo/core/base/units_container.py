@@ -1,9 +1,10 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and 
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain 
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
+#  Under the terms of Contract DE-NA0003525 with National Technology and
+#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
@@ -117,6 +118,7 @@ from pyomo.core.expr.numvalue import (
     native_numeric_types, pyomo_constant_types,
 )
 from pyomo.core.expr.template_expr import IndexTemplate
+from pyomo.core.expr.visitor import ExpressionValueVisitor
 from pyomo.core.expr import current as EXPR
 
 pint_module, pint_available = attempt_import(
@@ -241,16 +243,12 @@ class _PyomoUnit(NumericValue):
         """ This is not a named expression (overloaded from NumericValue) """
         return False
 
-    def is_expression_type(self):
+    def is_expression_type(self, expression_system=None):
         """ This is a leaf, not an expression (overloaded from NumericValue) """
         return False
 
     def is_component_type(self):
         """ This is not a component type (overloaded from NumericValue) """
-        return False
-
-    def is_relational(self):
-        """ This is not relational (overloaded from NumericValue) """
         return False
 
     def is_indexed(self):
@@ -300,37 +298,9 @@ class _PyomoUnit(NumericValue):
         # as outside the model scope and DO NOT duplicate them.
         return self
 
-    def __float__(self):
-        """
-        Coerce the value to a floating point
-
-        Raises:
-            TypeError
-        """
-        raise TypeError(
-            "Implicit conversion of Pyomo Unit `%s' to a float is "
-            "disabled. This error is often the result of treating a unit "
-            "as though it were a number (e.g., passing a unit to a built-in "
-            "math function). Avoid this error by using Pyomo-provided math "
-            "functions."
-            % self.name)
-
-    def __int__(self):
-        """
-        Coerce the value to an integer
-
-        Raises:
-            TypeError
-        """
-        raise TypeError(
-            "Implicit conversion of Pyomo Unit `%s' to an int is "
-            "disabled. This error is often the result of treating a unit "
-            "as though it were a number (e.g., passing a unit to a built-in "
-            "math function). Avoid this error by using Pyomo-provided math "
-            "math function). Avoid this error by using Pyomo-provided math "
-            "functions."
-            % self.name)
-
+    # __bool__ uses NumericValue base class implementation
+    # __float__ uses NumericValue base class implementation
+    # __int__ uses NumericValue base class implementation
     # __lt__ uses NumericValue base class implementation
     # __gt__ uses NumericValue base class implementation
     # __le__ uses NumericValue base class implementation
@@ -387,30 +357,11 @@ class _PyomoUnit(NumericValue):
         : bool
            A string representation for the expression tree.
         """
-        if len(self._pint_unit.dimensionality) > 1 or any(
-                i < 0 for i in self._pint_unit.dimensionality.values()):
-            return "("+str(self)+")"
+        _str = str(self)
+        if any(map(_str.__contains__, ' */')):
+            return "(" + _str + ")"
         else:
-            return str(self)
-
-    def __nonzero__(self):
-        """Unit is treated as a constant value of 1.0. Therefore, it is always nonzero
-        Returns
-        -------
-        : bool
-           Returns whether on not the object is non-zero
-        """
-        return self.__bool__()
-
-    def __bool__(self):
-        """Unit is treated as a constant value of 1.0. Therefore, it is always "True"
-
-        Returns
-        -------
-        : bool
-           Returns whether or not the object is "empty"
-        """
-        return True
+            return _str
 
     def __call__(self, exception=True):
         """Unit is treated as a constant value, and this method always returns 1.0
@@ -1127,14 +1078,24 @@ external
     #                                                                  float(conv_offset))
     #     self._pint_registry.define(defn_str)
 
+    def _rel_diff(self, a, b):
+        scale = min(abs(a), abs(b))
+        if scale < 1.:
+            scale = 1.
+        return abs(a - b) / scale
+
     def _equivalent_pint_units(self, a, b, TOL=1e-12):
         if a is b or a == b:
             return True
         base_a = self._pint_registry.get_base_units(a)
         base_b = self._pint_registry.get_base_units(b)
         if base_a[1] != base_b[1]:
-            return False
-        return abs(base_a[0] - base_b[0]) / min(base_a[0], base_b[0]) <= TOL
+            uc_a = base_a[1].dimensionality
+            uc_b = base_b[1].dimensionality
+            for key in uc_a.keys() | uc_b.keys():
+                if self._rel_diff(uc_a.get(key, 0), uc_b.get(key, 0)) >= TOL:
+                    return False
+        return self._rel_diff(base_a[0], base_b[0]) <= TOL
 
     def _equivalent_to_dimensionless(self, a, TOL=1e-12):
         if a is self._pint_dimensionless or a == self._pint_dimensionless:
@@ -1142,7 +1103,7 @@ external
         base_a = self._pint_registry.get_base_units(a)
         if not base_a[1].dimensionless:
             return False
-        return abs(base_a[0] - 1.) / min(base_a[0], 1.) <= TOL
+        return self._rel_diff(base_a[0], 1.) <= TOL
 
     def _get_pint_units(self, expr):
         """
@@ -1345,6 +1306,87 @@ external
     @property
     def pint_registry(self):
         return self._pint_registry
+
+
+class _QuantityVisitor(ExpressionValueVisitor):
+
+    def __init__(self):
+        self.native_types = set(nonpyomo_leaf_types)
+        self.native_types.add(units._pint_registry.Quantity)
+        self._unary_inverse_trig = {
+            'asin', 'acos', 'atan', 'asinh', 'acosh', 'atanh',
+        }
+
+    def visit(self, node, values):
+        """ Visit nodes that have been expanded """
+        if node.__class__ in self.handlers:
+            return self.handlers[node.__class__](self, node, values)
+        return node._apply_operation(values)
+
+    def visiting_potential_leaf(self, node):
+        """
+        Visiting a potential leaf.
+
+        Return True if the node is not expanded.
+        """
+        if node.__class__ in self.native_types:
+            return True, node
+
+        if node.is_expression_type():
+            return False, None
+
+        if node.is_numeric_type():
+            if hasattr(node, 'get_units'):
+                unit = node.get_units()
+                if unit is not None:
+                    return True, value(node) * unit._pint_unit
+                else:
+                    return True, value(node)
+            elif node.__class__ is _PyomoUnit:
+                return True, node._pint_unit
+            else:
+                return True, value(node)
+        elif node.is_logical_type():
+            return True, value(node)
+        else:
+            return True, node
+
+    def finalize(self, val):
+        if val.__class__ is units._pint_registry.Quantity:
+            return val
+        elif val.__class__ is units._pint_registry.Unit:
+            return 1. * val
+        # else
+        try:
+            return val * units._pint_dimensionless
+        except:
+            return val
+
+    def _handle_unary_function(self, node, values):
+        ans = node._apply_operation(values)
+        if node.getname() in self._unary_inverse_trig:
+            ans = ans * units._pint_registry.radian
+        return ans
+
+    def _handle_external(self, node, values):
+        # External functions are units-unaware
+        ans = node._apply_operation([
+            val.magnitude if val.__class__ is units._pint_registry.Quantity
+            else val for val in values])
+        unit = node.get_units()
+        if unit is not None:
+            ans = ans * unit._pint_unit
+        return ans
+
+_QuantityVisitor.handlers = {
+    EXPR.UnaryFunctionExpression: _QuantityVisitor._handle_unary_function,
+    EXPR.NPV_UnaryFunctionExpression: _QuantityVisitor._handle_unary_function,
+    EXPR.ExternalFunctionExpression: _QuantityVisitor._handle_external,
+    EXPR.NPV_ExternalFunctionExpression: _QuantityVisitor._handle_external,
+}
+
+def as_quantity(expr):
+    return _QuantityVisitor().dfs_postorder_stack(expr)
 
 
 class _DeferredUnitsSingleton(PyomoUnitsContainer):

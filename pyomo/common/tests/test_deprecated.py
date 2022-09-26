@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -38,7 +39,7 @@ class TestDeprecated(unittest.TestCase):
 
         self.assertIn('DEPRECATED: This has been deprecated',
                       DEP_OUT.getvalue())
-        self.assertIn('(deprecated in 1.2, will be removed in 3.4)',
+        self.assertIn('(deprecated in 1.2, will be removed in (or after) 3.4)',
                       DEP_OUT.getvalue().replace('\n',' '))
 
         DEP_OUT = StringIO()
@@ -47,7 +48,7 @@ class TestDeprecated(unittest.TestCase):
 
         self.assertIn('DEPRECATED: custom message here',
                       DEP_OUT.getvalue())
-        self.assertIn('(deprecated in 1.2, will be removed in 3.4)',
+        self.assertIn('(deprecated in 1.2, will be removed in (or after) 3.4)',
                       DEP_OUT.getvalue().replace('\n',' '))
 
 
@@ -305,7 +306,7 @@ class TestDeprecated(unittest.TestCase):
         self.assertIn(
             '.. deprecated:: 1.2\n   This function has been deprecated',
             foo.bar.__doc__)
-        self.assertIn('(will be removed in 3.4)',
+        self.assertIn('(will be removed in (or after) 3.4)',
                       foo.bar.__doc__.replace('\n',' '))
 
         # Test the default argument
@@ -320,8 +321,8 @@ class TestDeprecated(unittest.TestCase):
         # Test that the deprecation warning was logged
         self.assertIn('DEPRECATED: This function has been deprecated',
                       DEP_OUT.getvalue())
-        self.assertIn('(deprecated in 1.2, will be removed in 3.4)',
-                      DEP_OUT.getvalue())
+        self.assertIn('(deprecated in 1.2, will be removed in (or after) 3.4)',
+                      DEP_OUT.getvalue().replace('\n', ' '))
 
 
 class Bar(object):
@@ -423,6 +424,25 @@ class TestRelocated(unittest.TestCase):
             LOG.getvalue().replace('\n', ' '),
             "DEPRECATED: the 'oldName' class has been moved to "
             "'pyomo.common.tests.test_deprecated.TestRelocated'")
+
+    def test_relocated_module(self):
+        with LoggingIntercept() as LOG:
+            # Can import attributes defined only in the new module
+            from pyomo.common.tests.relo_mod import ReloClass
+        self.assertRegex(
+            LOG.getvalue().replace('\n', ' '),
+            r"DEPRECATED: The 'pyomo\.common\.tests\.relo_mod' module has "
+            r"been moved to 'pyomo\.common\.tests\.relo_mod_new'. Please "
+            r"update your import. \(deprecated in 1\.2\) \(called from "
+            r".*test_deprecated\.py")
+        with LoggingIntercept() as LOG:
+            # Second import: no warning
+            import pyomo.common.tests.relo_mod as relo
+        self.assertEqual(LOG.getvalue(), '')
+        import pyomo.common.tests.relo_mod_new as relo_new
+        self.assertIs(relo, relo_new)
+        self.assertEqual(relo.RELO_ATTR, 42)
+        self.assertIs(ReloClass, relo_new.ReloClass)
 
 
 class TestRenamedClass(unittest.TestCase):

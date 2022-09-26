@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -108,7 +109,7 @@ class ASLJSONTests(Tests):
         TempfileManager.add_tempfile(testFile_col, exists=False)
 
         cmd = ['--output='+testFile,
-               '--file-determinism=3',
+               '--file-determinism=2',
                '--symbolic-solver-labels',
                join(currdir, name+'_testCase.py')]
         if os.path.exists(join(currdir, name + '.dat')):

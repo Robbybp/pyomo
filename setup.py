@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -33,14 +34,17 @@ def read(*rnames):
                 break
         return line + README.read()
 
+def import_pyomo_module(*path):
+    _module_globals = dict(globals())
+    _module_globals['__name__'] = None
+    _source = os.path.join(os.path.dirname(__file__), *path)
+    with open(_source) as _FILE:
+        exec(_FILE.read(), _module_globals)
+    return _module_globals
+
 def get_version():
     # Source pyomo/version/info.py to get the version number
-    _verInfo = dict(globals())
-    _verFile = os.path.join(os.path.dirname(__file__),
-                            'pyomo','version','info.py')
-    with open(_verFile) as _FILE:
-        exec(_FILE.read(), _verInfo)
-    return _verInfo['__version__']
+    return import_pyomo_module('pyomo','version','info.py')['__version__']
 
 CYTHON_REQUIRED = "required"
 if not any(arg.startswith(cmd)
@@ -63,7 +67,7 @@ if using_cython:
             raise RuntimeError("Cython is only supported under CPython")
         from Cython.Build import cythonize
         #
-        # Note: The Cython developers recommend that you destribute C source
+        # Note: The Cython developers recommend that you distribute C source
         # files to users.  But this is fine for evaluating the utility of Cython
         #
         import shutil
@@ -81,8 +85,8 @@ if using_cython:
         ]
         for f in files:
             shutil.copyfile(f[:-1], f)
-        ext_modules = cythonize(files, compiler_directives={
-            "language_level": 3 if sys.version_info >= (3, ) else 2})
+        ext_modules = cythonize(files,
+                                compiler_directives={"language_level": 3})
     except:
         if using_cython == CYTHON_REQUIRED:
             print("""
@@ -91,6 +95,24 @@ ERROR: Cython was explicitly requested with --with-cython, but cythonization
 """)
             raise
         using_cython = False
+
+if (('--with-distributable-extensions' in sys.argv)
+    or (os.getenv('PYOMO_SETUP_ARGS') is not None and
+        '--with-distributable-extensions' in os.getenv('PYOMO_SETUP_ARGS'))):
+    try:
+        sys.argv.remove('--with-distributable-extensions')
+    except:
+        pass
+    #
+    # Import the APPSI extension builder
+    # NOTE: There is inconsistent behavior in Windows for APPSI.
+    # As a result, we will NOT include these extensions in Windows.
+    if not sys.platform.startswith('win'):
+        appsi_extension = import_pyomo_module(
+            'pyomo', 'contrib', 'appsi', 'build.py')['get_appsi_extension'](
+                in_setup=True, appsi_root=os.path.join(
+                    os.path.dirname(__file__), 'pyomo', 'contrib', 'appsi'))
+        ext_modules.append(appsi_extension)
 
 
 class DependenciesCommand(Command):
@@ -152,6 +174,10 @@ setup_kwargs = dict(
     maintainer = 'Pyomo Developer Team',
     maintainer_email = 'pyomo-developers@googlegroups.com',
     url = 'http://pyomo.org',
+    project_urls = {
+        'Documentation': 'https://pyomo.readthedocs.io/',
+        'Source': 'https://github.com/Pyomo/pyomo',
+    },
     license = 'BSD',
     platforms = ["any"],
     description = 'Pyomo: Python Optimization Modeling Objects',
@@ -169,22 +195,24 @@ setup_kwargs = dict(
         'Operating System :: Unix',
         'Programming Language :: Python',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: Implementation :: CPython',
         'Programming Language :: Python :: Implementation :: PyPy',
         'Topic :: Scientific/Engineering :: Mathematics',
         'Topic :: Software Development :: Libraries :: Python Modules' ],
-    python_requires = '>=3.6',
+    python_requires = '>=3.7',
     install_requires = [
         'ply',
     ],
     extras_require = {
         'tests': [
+            #'codecov', # useful for testing infrastructures, but not required
             'coverage',
-            'nose',
+            'pytest',
+            'pytest-parallel',
             'parameterized',
             'pybind11',
         ],
@@ -195,6 +223,7 @@ setup_kwargs = dict(
             'sphinxcontrib-jsmath',
             'sphinxcontrib-napoleon',
             'numpy', # Needed by autodoc for pynumero
+            'scipy', # Needed by autodoc for pynumero
         ],
         'optional': [
             'dill',      # No direct use, but improves lambda pickle
@@ -207,6 +236,7 @@ setup_kwargs = dict(
             'pint',      # units
             'python-louvain', # community_detection
             'pyyaml',    # core
+            'scipy',
             'sympy',     # differentiation
             'xlrd',      # dataportals
             'z3-solver', # community_detection
@@ -221,12 +251,12 @@ setup_kwargs = dict(
             'casadi; implementation_name!="pypy"',  # dae
             'numdifftools; implementation_name!="pypy"', # pynumero
             'pandas; implementation_name!="pypy"',
-            'scipy; implementation_name!="pypy"',
             'seaborn; implementation_name!="pypy"',   # parmest.graphics
         ],
     },
     packages = find_packages(exclude=("scripts",)),
     package_data = {
+        "pyomo.contrib.ampl_function_demo": ["src/*"],
         "pyomo.contrib.appsi.cmodel": ["src/*"],
         "pyomo.contrib.mcpp": ["*.cpp"],
         "pyomo.contrib.pynumero": ['src/*', 'src/tests/*'],

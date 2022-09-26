@@ -23,6 +23,8 @@ from typing import Dict
 from pyomo.common.config import ConfigValue, NonNegativeInt
 from pyomo.common.errors import PyomoException
 import os
+from pyomo.contrib.appsi.cmodel import cmodel_available
+from pyomo.core.staleflag import StaleFlagManager
 
 
 logger = logging.getLogger(__name__)
@@ -113,10 +115,10 @@ ipopt_command_line_options = {'acceptable_compl_inf_tol',
 
 
 class Ipopt(PersistentSolver):
-    def __init__(self):
+    def __init__(self, only_child_vars=True):
         self._config = IpoptConfig()
         self._solver_options = dict()
-        self._writer = NLWriter()
+        self._writer = NLWriter(only_child_vars=only_child_vars)
         self._filename = None
         self._dual_sol = dict()
         self._primal_sol = ComponentMap()
@@ -126,6 +128,8 @@ class Ipopt(PersistentSolver):
     def available(self):
         if self.config.executable.path() is None:
             return self.Availability.NotFound
+        elif not cmodel_available:
+            return self.Availability.NeedsCompiledExtension
         return self.Availability.FullLicense
 
     def version(self):
@@ -169,11 +173,12 @@ class Ipopt(PersistentSolver):
     @property
     def ipopt_options(self):
         """
+        A dictionary mapping solver options to values for those options. These are solver specific.
+
         Returns
         -------
-        ipopt_options: dict
-            A dictionary mapping solver options to values for those options. These
-            are solver specific.
+            dict
+                A dictionary mapping solver options to values for those options
         """
         return self._solver_options
 
@@ -237,6 +242,7 @@ class Ipopt(PersistentSolver):
         f.close()
 
     def solve(self, model, timer: HierarchicalTimer = None):
+        StaleFlagManager.mark_all_as_stale()
         avail = self.available()
         if not avail:
             raise PyomoException(f'Solver {self.__class__} is not available ({avail}).')
@@ -349,7 +355,7 @@ class Ipopt(PersistentSolver):
 
         if results.termination_condition == TerminationCondition.optimal and self.config.load_solution:
             for v, val in self._primal_sol.items():
-                v.value = val
+                v.set_value(val, skip_validation=True)
 
             if self._writer.get_active_objective() is None:
                 results.best_feasible_objective = None
@@ -393,7 +399,10 @@ class Ipopt(PersistentSolver):
         if 'option_file_name' in self.ipopt_options:
             raise ValueError('Use Ipopt.config.filename to specify the name of the options file. '
                              'Do not use Ipopt.ipopt_options["option_file_name"].')
-        for k, v in self.ipopt_options.items():
+        ipopt_options = dict(self.ipopt_options)
+        if config.time_limit is not None:
+            ipopt_options['max_cpu_time'] = config.time_limit
+        for k, v in ipopt_options.items():
             cmd.append(str(k) + '=' + str(v))
 
         env = os.environ.copy()

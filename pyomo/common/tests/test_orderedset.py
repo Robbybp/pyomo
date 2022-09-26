@@ -1,7 +1,8 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
 #  Under the terms of Contract DE-NA0003525 with National Technology and
 #  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
@@ -84,3 +85,8 @@ class testOrderedSet(unittest.TestCase):
         self.assertEqual(list(c), [3, 'c'])
         self.assertEqual(list(a), [1, 2, 3, 'a', 'b', 'c'])
         self.assertEqual(list(b), [3, 4, 'c', 'd'])
+
+    def test_reversed(self):
+        a = OrderedSet([1,5,3])
+        self.assertEqual(list(a), [1, 5, 3])
+        self.assertEqual(list(reversed(a)), [3, 5, 1])

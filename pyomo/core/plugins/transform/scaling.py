@@ -1,9 +1,10 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and 
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain 
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
+#  Under the terms of Contract DE-NA0003525 with National Technology and
+#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
@@ -158,7 +159,10 @@ class ScaleModel(Transformation):
                     v.setub(temp)
 
                 if v.value is not None:
-                    v.value = value(v) * scaling_factor
+                    # Since the value was OK in the unscaled space, it
+                    # should be safe to assume it is still valid in the
+                    # scaled space)
+                    v.set_value(value(v) * scaling_factor, skip_validation=True)
 
         # scale the objectives/constraints and perform the scaled variable substitution
         scale_constraint_dual = False
@@ -268,7 +272,10 @@ class ScaleModel(Transformation):
             original_v = original_model.find_component(original_v_path)
 
             for k in scaled_v:
-                original_v[k].value = value(scaled_v[k]) / component_scaling_factor_map[scaled_v[k]]
+                original_v[k].set_value(
+                    value(scaled_v[k]) / component_scaling_factor_map[scaled_v[k]],
+                    skip_validation=True,
+                )
                 if check_reduced_costs and scaled_v[k] in scaled_model.rc:
                     original_model.rc[original_v[k]] = scaled_model.rc[scaled_v[k]] * component_scaling_factor_map[
                         scaled_v[k]] / objective_scaling_factor

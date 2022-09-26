@@ -1,9 +1,10 @@
 #  ___________________________________________________________________________
 #
 #  Pyomo: Python Optimization Modeling Objects
-#  Copyright 2017 National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and 
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain 
+#  Copyright (c) 2008-2022
+#  National Technology and Engineering Solutions of Sandia, LLC
+#  Under the terms of Contract DE-NA0003525 with National Technology and
+#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
@@ -19,6 +20,7 @@ currdir = dirname(abspath(__file__))+os.sep
 import pyomo.common.unittest as unittest
 
 from pyomo.core.expr.current import Expr_if
+from pyomo.core.expr.visitor import replace_expressions
 from pyomo.core.expr import current as EXPR
 from pyomo.repn import generate_standard_repn
 from pyomo.environ import AbstractModel, ConcreteModel, Var, Param, Set, Expression, RangeSet, ExternalFunction, quicksum, cos, sin, summation, sum_product
@@ -176,7 +178,7 @@ class Test(unittest.TestCase):
 
     def test_simplesum(self):
         # a + b
-        m = AbstractModel()
+        m = ConcreteModel()
         m.a = Var()
         m.b = Var()
         e = m.a + m.b
@@ -205,7 +207,7 @@ class Test(unittest.TestCase):
 
     def test_constsum(self):
         # a + 5
-        m = AbstractModel()
+        m = ConcreteModel()
         m.a = Var()
         e = m.a + 5
  
@@ -232,7 +234,7 @@ class Test(unittest.TestCase):
         self.assertEqual(baseline, repn_to_dict(rep))
 
         # 5 + a
-        m = AbstractModel()
+        m = ConcreteModel()
         m.a = Var()
         e = 5 + m.a
  
@@ -857,7 +859,7 @@ class Test(unittest.TestCase):
         #
         # Check the structure of nested sums
         #
-        m = AbstractModel()
+        m = ConcreteModel()
         m.a = Var()
         m.b = Var()
         m.c = Var()
@@ -1018,7 +1020,7 @@ class Test(unittest.TestCase):
         #
         # Check sums with nested products
         #
-        m = AbstractModel()
+        m = ConcreteModel()
         m.a = Var()
         m.b = Var()
         m.c = Var()
@@ -1176,7 +1178,7 @@ class Test(unittest.TestCase):
         #    -
         #     \
         #      a
-        m = AbstractModel()
+        m = ConcreteModel()
         m.a = Var()
         e = - m.a
 
@@ -1206,7 +1208,7 @@ class Test(unittest.TestCase):
         #    -
         #   / \
         #  a   b
-        m = AbstractModel()
+        m = ConcreteModel()
         m.a = Var()
         m.b = Var()
         e = m.a - m.b
@@ -1263,7 +1265,7 @@ class Test(unittest.TestCase):
         #    -
         #   / \
         #  a   5
-        m = AbstractModel()
+        m = ConcreteModel()
         m.a = Var()
         e = m.a - 5
 
@@ -1320,7 +1322,7 @@ class Test(unittest.TestCase):
         #
         # Check the structure of nested differences
         #
-        m = AbstractModel()
+        m = ConcreteModel()
         m.a = Var()
         m.b = Var()
         m.c = Var()
@@ -1512,7 +1514,7 @@ class Test(unittest.TestCase):
         #
         # Check the structure of sum of products
         #
-        m = AbstractModel()
+        m = ConcreteModel()
         m.a = Var()
         m.b = Var()
         m.c = Var()
@@ -1722,7 +1724,7 @@ class Test(unittest.TestCase):
         #    *
         #   / \
         #  a   5
-        m = AbstractModel()
+        m = ConcreteModel()
         m.a = Var()
         e = m.a * 5
 
@@ -2057,7 +2059,7 @@ class Test(unittest.TestCase):
         #     +   5
         #    / \
         #   a   b
-        m = AbstractModel()
+        m = ConcreteModel()
         m.a = Var()
         m.b = Var()
         m.c = Var()
@@ -2176,7 +2178,7 @@ class Test(unittest.TestCase):
         self.assertEqual(baseline, repn_to_dict(rep))
 
     def test_quadratic1(self):
-        m = AbstractModel()
+        m = ConcreteModel()
         m.a = Var()
         m.b = Var()
         m.c = Var()
@@ -2318,7 +2320,7 @@ class Test(unittest.TestCase):
 
 
     def test_quadratic2(self):
-        m = AbstractModel()
+        m = ConcreteModel()
         m.a = Var()
         m.b = Var()
         m.c = Var()
@@ -3511,7 +3513,7 @@ class Test(unittest.TestCase):
         #       ExprIf
         #      /  |   \
         #   True  a    b
-        m = AbstractModel()
+        m = ConcreteModel()
         m.a = Var()
         m.b = Var()
         m.c = Var()
@@ -4015,17 +4017,19 @@ class Test(unittest.TestCase):
         rep = generate_standard_repn(e, compute_values=True)
         self.assertEqual(str(rep.to_expression()), "w")
 
-        e = Expr_if(not m.p, 1, 0)
+        e = Expr_if(m.p == 0, 1, 0)
         rep = generate_standard_repn(e, compute_values=True)
         self.assertEqual(str(rep.to_expression()), "0")
         rep = generate_standard_repn(e, compute_values=False)
-        self.assertEqual(str(rep.to_expression()), "Expr_if( ( 0.0 ), then=( 1 ), else=( 0 ) )")
+        self.assertEqual(str(rep.to_expression()),
+                         "Expr_if( ( p  ==  0 ), then=( 1 ), else=( 0 ) )")
 
-        e = Expr_if(not m.p, 1, m.v)
+        e = Expr_if(m.p == 0, 1, m.v)
         rep = generate_standard_repn(e, compute_values=True)
         self.assertEqual(str(rep.to_expression()), "0")
         rep = generate_standard_repn(e, compute_values=False)
-        self.assertEqual(str(rep.to_expression()), "Expr_if( ( 0.0 ), then=( 1 ), else=( v ) )")
+        self.assertEqual(str(rep.to_expression()),
+                         "Expr_if( ( p  ==  0 ), then=( 1 ), else=( v ) )")
 
         e = Expr_if(m.v, 1, 0)
         rep = generate_standard_repn(e, compute_values=True)
@@ -4215,6 +4219,20 @@ class Test(unittest.TestCase):
 
         e = Foo()
         self.assertRaises(AttributeError, generate_standard_repn, e)
+
+    def test_unexpectedly_NPV(self):
+        # This situation arose in PyROS development
+        m = ConcreteModel()
+        m.x = Var()
+        m.y = Var()
+        m.p = Param(mutable=True, initialize=0)
+        e = m.y*cos(m.x/2)
+
+        # Replacing Var with a Param results in a NPV product expression
+        # as the single argument of a regular (non-NPV) unary function.
+        e1 = replace_expressions(e, {id(m.x): m.p})
+        rep = generate_standard_repn(e1, compute_values=True)
+        self.assertEqual(str(rep.to_expression()), "y")
 
 
 if __name__ == "__main__":
