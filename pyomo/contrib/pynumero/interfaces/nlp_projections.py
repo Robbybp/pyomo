@@ -423,8 +423,22 @@ class ProjectedNLP(_BaseNLPDelegator):
 
 class ProjectedExtendedNLP(ProjectedNLP, _ExtendedNLPDelegator):
 
-    def __init__(self, original_nlp, primals_ordering):
-        super(ProjectedExtendedNLP, self).__init__(original_nlp, primals_ordering)
+    # TODO: Update this class to support projecting equality constraints
+    # as well as variables.
+
+    def __init__(
+        self,
+        original_nlp,
+        primals_ordering,
+        constraints_ordering=None,
+        mask_objective=False,
+    ):
+        super(ProjectedExtendedNLP, self).__init__(
+            original_nlp,
+            primals_ordering,
+            constraints_ordering=constraints_ordering,
+            mask_objective=mask_objective,
+        )
         self._jacobian_eq_nz_mask = None
 
     def evaluate_jacobian_eq(self, out=None):
