@@ -75,14 +75,17 @@ class SquareNlpSolverBase(object):
         self._function_values = None
         self._jacobian = None
 
-        if self._nlp.n_eq_constraints() != self._nlp.n_primals():
-            raise RuntimeError(
-                "Cannot construct a square solver for an NLP that"
-                " does not have the same numbers of variables as"
-                " equality constraints. Got %s variables and %s"
-                " equalities."
-                % (self._nlp.n_primals(), self._nlp.n_eq_constraints())
-            )
+        #
+        # NOTE: Temporarily remove this check until I fix ProjectedExtendedNLP
+        #
+        #if self._nlp.n_eq_constraints() != self._nlp.n_primals():
+        #    raise RuntimeError(
+        #        "Cannot construct a square solver for an NLP that"
+        #        " does not have the same numbers of variables as"
+        #        " equality constraints. Got %s variables and %s"
+        #        " equalities."
+        #        % (self._nlp.n_primals(), self._nlp.n_eq_constraints())
+        #    )
         # Checking for a square system of equalities is easy, but checking
         # bounds is a little difficult. We don't know how an NLP will
         # implement bounds (no bound could be None, np.nan, or np.inf),
