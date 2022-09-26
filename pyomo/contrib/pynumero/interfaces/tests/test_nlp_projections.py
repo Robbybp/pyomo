@@ -595,7 +595,7 @@ class TestProjectConstraints(unittest.TestCase):
             original_nlp,
             primals_ordering,
             constraints_ordering=constraints_ordering,
-            include_objective=False,
+            mask_objective=True,
         )
         # Make sure we have the right number of variables and constraints
         n_primals_orig = original_nlp.n_primals()
@@ -666,7 +666,7 @@ class TestProjectConstraints(unittest.TestCase):
             original_nlp,
             primals_ordering_names,
             constraints_ordering=constraints_ordering,
-            include_objective=False,
+            mask_objective=True,
         )
         # Make sure we have the right number of variables and constraints
         n_primals_orig = original_nlp.n_primals()
