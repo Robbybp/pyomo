@@ -111,8 +111,8 @@ class RootNlpSolver(DenseSquareNlpSolver):
         default="hybr",
         # NOTE: Only supporting Powell hybrid method and Levenberg-Marquardt
         # methods (both from MINPACK) for now.
-        #domain=In({"hybr", "lm"}),
-        domain=str,
+        domain=In({"hybr", "lm"}),
+        #domain=str,
         description="Method used to solve for the function root",
     ))
 
