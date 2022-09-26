@@ -18,7 +18,10 @@ from pyomo.core.base.var import Var
 from pyomo.core.base.objective import Objective
 from pyomo.core.base.suffix import Suffix
 from pyomo.util.calc_var_value import calculate_variable_from_constraint
-from pyomo.util.subsystems import generate_subsystem_blocks
+from pyomo.util.subsystems import (
+    create_subsystem_block,
+    generate_subsystem_blocks,
+)
 
 from pyomo.contrib.pynumero.interfaces.pyomo_nlp import PyomoNLP
 from pyomo.contrib.pynumero.interfaces.nlp_projections import (
@@ -319,9 +322,9 @@ class SingleNlpSquareDecompositionSolver(ParameterizedSquareSolver):
 
         self._block = create_subsystem_block(self.equations, self.variables)
         self._block._obj = Objective(expr=0.0)
-        block.scaling_factor = Suffix(direction=Suffix.EXPORT)
+        self._block.scaling_factor = Suffix(direction=Suffix.EXPORT)
         # HACK: scaling_factor just needs to be nonempty.
-        block.scaling_factor[block._obj] = 1.0
+        self._block.scaling_factor[self._block._obj] = 1.0
         self._nlp = PyomoNLP(self._block)
 
         # Create projected NLPs
@@ -330,11 +333,23 @@ class SingleNlpSquareDecompositionSolver(ParameterizedSquareSolver):
             [var.name for var in block.vars.values()]
             for block, inputs in self._solver_subsystem_list
         ]
+        self._solver_subsystem_con_coords = [
+            self._nlp.get_constraint_indices(list(block.cons.values()))
+            for block, _ in self._solver_subsystem_list
+        ]
         # NOTE: This requires the ability to "project" the constraints
         # of an NLP
         self._solver_proj_nlps = [
-            ProjectedExtendedNLP(nlp, names) for nlp, names in
-            zip(self._solver_subsystem_nlps, self._solver_subsystem_var_names)
+            ProjectedExtendedNLP(self._nlp, names, constraints_ordering=coords)
+            for names, coords in zip(
+                self._solver_subsystem_var_names,
+                self._solver_subsystem_con_coords,
+            )
+        ]
+        self._nlp_solvers = [
+            self._solver_class(
+                nlp, timer=self._timer, options=self._solver_options
+            ) for nlp in self._solver_proj_nlps
         ]
 
         ## Need a dummy objective to create an NLP
@@ -375,7 +390,11 @@ class SingleNlpSquareDecompositionSolver(ParameterizedSquareSolver):
         self._timer.stop(self.time_bins.construct)
 
     def partition_system(self, variables, equations):
-        raise NotImplementedError()
+        igraph = IncidenceGraphInterface()
+        var_blocks, con_blocks = igraph.get_diagonal_blocks(
+            variables, equations
+        )
+        return list(zip(var_blocks, con_blocks))
 
     def update_parameters(self, values):
         self._timer.start(self.time_bins.update_parameters)
@@ -399,26 +418,26 @@ class SingleNlpSquareDecompositionSolver(ParameterizedSquareSolver):
                 self._timer.start(self.time_bins.calc_var)
                 self._timer.stop(self.time_bins.calc_var)
 
-                nlp = self._solver_subsystem_nlps[solver_subsystem_idx]
+                #nlp = self._solver_subsystem_nlps[solver_subsystem_idx]
                 proj_nlp = self._solver_proj_nlps[solver_subsystem_idx]
-                input_coords = self._solver_subsystem_input_coords[solver_subsystem_idx]
+                #input_coords = self._solver_subsystem_input_coords[solver_subsystem_idx]
 
                 nlp_solver = self._nlp_solvers[solver_subsystem_idx]
-                _, local_inputs = self._solver_subsystem_list[solver_subsystem_idx]
+                #_, local_inputs = self._solver_subsystem_list[solver_subsystem_idx]
 
-                primals = nlp.get_primals()
-                variables = nlp.get_pyomo_variables()
+                #primals = nlp.get_primals()
+                #variables = nlp.get_pyomo_variables()
 
-                # Set values and bounds from inputs to the SCC.
-                # This works because values have been set in the original
-                # pyomo model, either by a previous SCC solve, or from the
-                # "global inputs"
-                for i, var in zip(input_coords, local_inputs):
-                    # Set primals (inputs) in the original NLP
-                    primals[i] = var.value
-                # This affects future evaluations in the ProjectedNLP
+                ## Set values and bounds from inputs to the SCC.
+                ## This works because values have been set in the original
+                ## pyomo model, either by a previous SCC solve, or from the
+                ## "global inputs"
+                #for i, var in zip(input_coords, local_inputs):
+                #    # Set primals (inputs) in the original NLP
+                #    primals[i] = var.value
+                ## This affects future evaluations in the ProjectedNLP
 
-                nlp.set_primals(primals)
+                #nlp.set_primals(primals)
 
                 x0 = proj_nlp.get_primals()
 
@@ -439,10 +458,14 @@ class SingleNlpSquareDecompositionSolver(ParameterizedSquareSolver):
                 # the ProjectedNLP. However, I can only get a list of variables
                 # from the original Pyomo NLP, so here some of the values I'm
                 # setting are redundant.
-                new_primals = nlp.get_primals()
-                assert len(new_primals) == len(variables)
-                for var, val in zip(variables, new_primals):
-                    var.set_value(val, skip_validation=True)
+                #
+                # Is this really necessary? My original NLP is quite large...
+                # Would like to avoid getting/setting its primals if possible...
+                # (Would need to cache the variables for each ProjNLP)
+                #new_primals = nlp.get_primals()
+                #assert len(new_primals) == len(variables)
+                #for var, val in zip(variables, new_primals):
+                #    var.set_value(val, skip_validation=True)
 
                 solver_subsystem_idx += 1
         self._timer.stop(self.time_bins.solve)
