@@ -201,6 +201,7 @@ class ProjectedNLP(_BaseNLPDelegator):
             j: i for i, j in enumerate(self._constraints_ordering)
         }
         self._include_objective = include_objective
+        self._supports_objective = None
         self._default_objective = 0.0
 
     def _generate_maps(self):
@@ -359,9 +360,16 @@ class ProjectedNLP(_BaseNLPDelegator):
     def evaluate_hessian_lag(self, out=None):
         # Cache original NLP's duals and temporarily set those for
         # constraints we don't want to zero.
-        cached_obj_factor = self._original_nlp.get_obj_factor()
-        if not self._include_objective:
-            self._original_nlp.set_obj_factor(0.0)
+        if self._supports_objective or self._supports_objective is None:
+            # If we support objectives, or don't know yet, try to get
+            # and set the objective factor.
+            try:
+                cached_obj_factor = self._original_nlp.get_obj_factor()
+                if not self._include_objective:
+                    self._original_nlp.set_obj_factor(0.0)
+                self._supports_objective = True
+            except NotImplementedError:
+                self._supports_objective = False
         cached_duals = self._original_nlp.get_duals()
         duals = np.copy(cached_duals)
         n_other_constraints = len(self._other_constraint_coords)
