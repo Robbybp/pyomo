@@ -404,6 +404,8 @@ class SingleNlpSquareDecompositionSolver(ParameterizedSquareSolver):
 
     def solve(self):
         self._timer.start(self.time_bins.solve)
+        # TODO: Need to update the primals in the NLP with the
+        # new input values.
         solver_subsystem_idx = 0
         for block, inputs in self._subsystem_list:
             if len(block.vars) < self._calc_var_cutoff:
@@ -468,6 +470,9 @@ class SingleNlpSquareDecompositionSolver(ParameterizedSquareSolver):
                 #    var.set_value(val, skip_validation=True)
 
                 solver_subsystem_idx += 1
+        # TODO: Need to update variable values after the solve.
+        # This is necessary so the updated values make it to the NLP used for
+        # derivative calculations.
         self._timer.stop(self.time_bins.solve)
 
 
