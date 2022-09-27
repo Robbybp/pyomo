@@ -200,7 +200,8 @@ class ProjectedNLP(_BaseNLPDelegator):
         self._nnz_jacobian = None
         self._nnz_hessian_lag = None
 
-        original_con_coords = np.arange(self._original_nlp.n_constraints())
+        n_con_original = self._original_nlp.n_constraints()
+        original_con_coords = np.arange(n_con_original)
         if constraints_ordering is None:
             constraints_ordering = original_con_coords
         # NOTE: constraints_ordering is a list (or array) of coordinates,
@@ -210,12 +211,16 @@ class ProjectedNLP(_BaseNLPDelegator):
             raise ValueError(
                 "Constraint coordinates must be valid for the original NLP"
             )
-        self._constraints_ordering = constraints_ordering
+        self._constraints_ordering = np.array(constraints_ordering)
+        conorder = self._constraints_ordering
+        n_con_projected = len(conorder)
         mask = ~np.isin(original_con_coords, constraints_ordering)
         self._other_constraint_coords = original_con_coords[mask]
-        self._projected_constraint_map = {
-            j: i for i, j in enumerate(self._constraints_ordering)
-        }
+        self._original_to_projected_cons = np.nan*np.ones(n_con_original)
+        self._original_to_projected_cons[conorder] = np.arange(n_con_projected)
+        #self._projected_constraint_map = {
+        #    j: i for i, j in enumerate(self._constraints_ordering)
+        #}
         self._mask_objective = mask_objective
         self._default_objective = 0.0
 
@@ -347,9 +352,10 @@ class ProjectedNLP(_BaseNLPDelegator):
         new_col = col[self._jacobian_nz_mask]
         new_col = self._original_to_projected[new_col]
         new_row = row[self._jacobian_nz_mask]
-        new_row = np.fromiter(
-            (self._projected_constraint_map[r] for r in new_row), dtype=int
-        )
+        new_row = self._original_to_projected_cons[new_row]
+        #new_row = np.fromiter(
+        #    (self._projected_constraint_map[r] for r in new_row), dtype=int
+        #)
         new_data = data[self._jacobian_nz_mask]
 
         return sp.coo_matrix(
@@ -440,6 +446,96 @@ class ProjectedExtendedNLP(ProjectedNLP, _ExtendedNLPDelegator):
             mask_objective=mask_objective,
         )
         self._jacobian_eq_nz_mask = None
+        # Here, I should convert constraints_ordering to two separate
+        # index arrays: One indicating which equality constraints are
+        # retained in the projection, and one indicating which inequality
+        # constraints are retained in the projection.
+        n_con_original = original_nlp.n_constraints()
+        n_eq_original = original_nlp.n_eq_constraints()
+        n_ineq_original = original_nlp.n_ineq_constraints()
+        if constraints_ordering is None:
+            constraints_ordering = np.arange(n_con_original)
+        constraints_ordering = np.array(constraints_ordering)
+        # This is a new, experimental API for ExtendedNLP
+        eq_coords = original_nlp.get_eq_coordinates()
+        ineq_coords = original_nlp.get_ineq_coordinates()
+
+        # Set up maps for indices from the original full constraint vector
+        # to the equality/inequality vectors.
+        full_to_eq = np.nan*np.ones(n_con_original)
+        full_to_eq[eq_coords] = np.arange(n_eq_original)
+        full_to_ineq = np.nan*np.ones(n_con_original)
+        full_to_ineq[ineq_coords] = np.arange(n_ineq_original)
+
+        # Here I just get which of the indicated constraints are equalities
+        # and inequalities
+
+        # These map new equality indices to original full-constraint indices
+        proj_eq_mask = np.isin(constraints_ordering, eq_coords)
+        proj_ineq_mask = np.isin(constraints_ordering, ineq_coords)
+        eq_constraints_ord = constraints_ordering.compress(proj_eq_mask)
+        ineq_constraints_ord = constraints_ordering.compress(proj_ineq_mask)
+
+        # These map constraints in the original equality/inequality indices
+        # to the projected full-constraint indices.
+        # These map new equality indices to original equality indices
+        #
+        # Converting to int is necessary so we can use these values as indices
+        # later, and has the added benefit that we make sure we don't include
+        # any NANs
+        eq_con_order = np.array(full_to_eq[eq_constraints_ord], dtype=np.int)
+        ineq_con_order = np.array(full_to_ineq[ineq_constraints_ord], dtype=np.int)
+        self._eq_constraints_ordering = eq_con_order
+        self._ineq_constraints_ordering = ineq_con_order
+
+        # Now I need maps from original to projected.
+        n_eq_proj = len(eq_constraints_ord)
+        n_ineq_proj = len(ineq_constraints_ord)
+        eq_orig_to_proj = np.nan*np.ones(n_con_original)
+        eq_orig_to_proj[eq_con_order] = np.arange(n_eq_proj)
+        ineq_orig_to_proj = np.nan*np.ones(n_con_original)
+        ineq_orig_to_proj[ineq_con_order] = np.arange(n_ineq_proj)
+        self._eq_original_to_projected = eq_orig_to_proj
+        self._ineq_original_to_projected = ineq_orig_to_proj
+
+        ## Set up maps for indices in the ProjectedNLP full-constraint vector
+        ## to the equality/inequality vectors.
+        #proj_full_to_eq = np.nan*np.ones(self.n_constraints())
+        #proj_full_to_eq[eq_constraints_ord] = np.arange(n_eq_proj)
+        #proj_full_to_ineq = np.nan*np.ones(self.n_constraints())
+        #proj_full_to_ineq[ineq_constraints_ord] = np.arange(n_ineq_proj)
+
+        ## Construct maps from new equality indices to original equality indices
+
+        ## Here we are mapping values of orderings from indices in full constraint
+        ## vector to indices in the eq/ineq constraint vectors.
+        ## Presumably these now map original eq indices to projected eq indices.
+        #self._eq_constraints_ordering = proj_full_to_eq[self._eq_constraints_ordering]
+        #self._ineq_constraints_ordering = proj_full_to_ineq[self._ineq_constraints_ordering]
+
+    def n_eq_constraints(self):
+        return len(self._eq_constraints_ordering)
+
+    def n_ineq_constraints(self):
+        return len(self._ineq_constraints_ordering)
+
+    def evaluate_eq_constraints(self, out=None):
+        original_eq = self._original_nlp.evaluate_eq_constraints()
+        # eq_constraints_ordering maps new indices to original indices,
+        # and is the correct syntax for this permutation/extraction
+        projected_eq = original_eq[self._eq_constraints_ordering]
+        if out is None:
+            return projected_eq
+        np.copyto(out, projected_eq)
+        return out
+
+    def evaluate_ineq_constraints(self):
+        original_ineq = self._original_nlp.evaluate_ineq_constraints()
+        projected_ineq = original_ineq[self._ineq_constraints_ordering]
+        if out is None:
+            return projected_ineq
+        np.copyto(out, projected_ineq)
+        return out
 
     def evaluate_jacobian_eq(self, out=None):
         original_jacobian = self._original_nlp.evaluate_jacobian_eq()
@@ -454,15 +550,25 @@ class ProjectedExtendedNLP(ProjectedNLP, _ExtendedNLPDelegator):
         data = original_jacobian.data
 
         if self._jacobian_eq_nz_mask is None:
-            # need to remap the irow, jcol to the new space and change the size
-            self._jacobian_eq_nz_mask = np.isin(col, self._original_idxs)
+            # These indicate the coordinates of the original eq-Jacobian
+            # that are retained in the projection.
+            col_mask = np.isin(col, self._original_idxs)
+            row_mask = np.isin(row, self._eq_constraints_ordering)
+            self._jacobian_eq_nz_mask = col_mask & row_mask
 
         new_col = col[self._jacobian_eq_nz_mask]
         new_col = self._original_to_projected[new_col]
         new_row = row[self._jacobian_eq_nz_mask]
+        # Now I need to map row coordinates in the original NLP to their
+        # coordinates in the new NLP (their location in the provided array
+        # of indices).
+        new_row = self._eq_original_to_projected[new_row]
         new_data = data[self._jacobian_eq_nz_mask]
 
         return sp.coo_matrix(
             (new_data, (new_row, new_col)),
             shape=(self.n_eq_constraints(), self.n_primals()),
         )
+
+    def evaluate_jacobian_ineq(self, out=None):
+        raise NotImplementedError()
