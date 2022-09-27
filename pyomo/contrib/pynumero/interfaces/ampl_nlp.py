@@ -281,6 +281,14 @@ class AslNLP(ExtendedNLP):
     def n_ineq_constraints(self):
         return self._n_con_ineq
 
+    # overloaded from ExtendedNLP
+    def get_eq_coordinates(self):
+        return self._con_eq_full_map
+
+    # overloaded from ExtendedNLP
+    def get_ineq_coordinates(self):
+        return self._con_ineq_full_map
+
     # overloaded from NLP
     def nnz_jacobian(self):
         return self._nnz_jac_full

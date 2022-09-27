@@ -387,7 +387,23 @@ class ExtendedNLP(NLP, metaclass=abc.ABCMeta):
         Returns number of inequality constraints
         """
         pass
-    
+
+    @abc.abstractmethod
+    def get_eq_coordinates(self):
+        """
+        Returns the coordinates, in the full constraint vector, of constraints
+        that are equalities.
+        """
+        pass
+
+    @abc.abstractmethod
+    def get_ineq_coordinates(self):
+        """
+        Returns the coordinates, in the full constraint vector, of constraints
+        that are inequalities.
+        """
+        pass
+
     @abc.abstractmethod
     def nnz_jacobian_eq(self):
         """
