@@ -150,17 +150,21 @@ class SquareDecompositionSolver(ParameterizedSquareSolver):
             block.scaling_factor[block._obj] = 1.0
 
         # These are the "original NLPs" that will be projected
+        self._timer.start("sub-nlps")
         self._solver_subsystem_nlps = [
             PyomoNLP(block) for block, inputs in self._solver_subsystem_list
         ]
+        self._timer.stop("sub-nlps")
         self._solver_subsystem_var_names = [
             [var.name for var in block.vars.values()]
             for block, inputs in self._solver_subsystem_list
         ]
+        self._timer.start("ProjectedNLP")
         self._solver_proj_nlps = [
-            ProjectedExtendedNLP(nlp, names) for nlp, names in
+            ProjectedExtendedNLP(nlp, names, timer=self._timer) for nlp, names in
             zip(self._solver_subsystem_nlps, self._solver_subsystem_var_names)
         ]
+        self._timer.stop("ProjectedNLP")
 
         # We will solve the ProjectedNLPs rather than the original NLPs
         self._nlp_solvers = [
