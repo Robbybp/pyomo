@@ -310,7 +310,9 @@ class SingleNlpSquareDecompositionSolver(ParameterizedSquareSolver):
         if len(self.variables) != len(self.equations):
             raise RuntimeError()
 
+        self._timer.start("partition")
         subsystems = self.partition_system(self.variables, self.equations)
+        self._timer.stop("partition")
         # Switch order for compatibility with generate_subsystem_blocks
         subsystems = [(eqns, vars) for vars, eqns in subsystems]
         self._subsystem_list = list(generate_subsystem_blocks(subsystems))
@@ -325,10 +327,13 @@ class SingleNlpSquareDecompositionSolver(ParameterizedSquareSolver):
         self._block.scaling_factor = Suffix(direction=Suffix.EXPORT)
         # HACK: scaling_factor just needs to be nonempty.
         self._block.scaling_factor[self._block._obj] = 1.0
+        self._timer.start("PyomoNLP")
         self._nlp = PyomoNLP(self._block)
+        self._timer.stop("PyomoNLP")
 
         # Create projected NLPs
         # Create solvers for the projected NLPs
+        self._timer.start("get_coords")
         self._solver_subsystem_var_names = [
             [var.name for var in block.vars.values()]
             for block, inputs in self._solver_subsystem_list
@@ -337,20 +342,27 @@ class SingleNlpSquareDecompositionSolver(ParameterizedSquareSolver):
             self._nlp.get_constraint_indices(list(block.cons.values()))
             for block, _ in self._solver_subsystem_list
         ]
+        self._timer.stop("get_coords")
         # NOTE: This requires the ability to "project" the constraints
         # of an NLP
+        self._timer.start("ProjectedNLP")
         self._solver_proj_nlps = [
-            ProjectedExtendedNLP(self._nlp, names, constraints_ordering=coords)
+            ProjectedExtendedNLP(
+                self._nlp, names, constraints_ordering=coords, timer=timer,
+            )
             for names, coords in zip(
                 self._solver_subsystem_var_names,
                 self._solver_subsystem_con_coords,
             )
         ]
+        self._timer.stop("ProjectedNLP")
+        self._timer.start("nlp_solver")
         self._nlp_solvers = [
             self._solver_class(
                 nlp, timer=self._timer, options=self._solver_options
             ) for nlp in self._solver_proj_nlps
         ]
+        self._timer.stop("nlp_solver")
 
         ## Need a dummy objective to create an NLP
         #for block, inputs in self._solver_subsystem_list:
@@ -406,10 +418,36 @@ class SingleNlpSquareDecompositionSolver(ParameterizedSquareSolver):
         self._timer.start(self.time_bins.solve)
         # TODO: Need to update the primals in the NLP with the
         # new input values.
+
+        # Set NLP primal coordinates with the values from the parameters.
+        params_in_nlp = []
+        param_indices = []
+        for var in self._param_vars:
+            try:
+                # Not all of the "param" variables actually show up in
+                # active constraints...
+                i = self._nlp.get_primal_indices([var])[0]
+                params_in_nlp.append(var)
+                param_indices.append(i)
+            except KeyError:
+                pass
+        primals = self._nlp.get_primals()
+        for i, var in zip(param_indices, params_in_nlp):
+            primals[i] = var.value
+        self._nlp.set_primals(primals)
+
         solver_subsystem_idx = 0
         for block, inputs in self._subsystem_list:
             if len(block.vars) < self._calc_var_cutoff:
                 self._timer.start(self.time_bins.calc_var)
+                # This solver does not transfer values back to Pyomo
+                # for intermediate solves of the decomposition, so any
+                # solves that rely on the Pyomo values will be incorrect.
+                # TODO: Refactor so this branch is not here.
+                raise RuntimeError(
+                    "Attempting to use calculate_variable_from_constraint"
+                    " in solver with a single NLP"
+                )
                 calculate_variable_from_constraint(
                     block.vars[0], block.cons[0]
                 )
@@ -473,6 +511,13 @@ class SingleNlpSquareDecompositionSolver(ParameterizedSquareSolver):
         # TODO: Need to update variable values after the solve.
         # This is necessary so the updated values make it to the NLP used for
         # derivative calculations.
+
+        # What variables need to be updated? Only those I solved for.
+        indices = self._nlp.get_primal_indices(self.variables)
+        primals = self._nlp.get_primals()
+        for i, var in zip(indices, self.variables):
+            var.set_value(primals[i])
+
         self._timer.stop(self.time_bins.solve)
 
 
