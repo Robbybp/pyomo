@@ -159,6 +159,7 @@ class ProjectedNLP(_BaseNLPDelegator):
         primals_ordering,
         constraints_ordering=None,
         mask_objective=False,
+        timer=None,
     ):
         """
         This class takes an NLP that depends on a set of primals (original
@@ -189,17 +190,21 @@ class ProjectedNLP(_BaseNLPDelegator):
             in the original NLP to appear in this NLP.
 
         """
+        if timer is None:
+            from pyomo.common.timing import HierarchicalTimer
+            timer = HierarchicalTimer()
         super(ProjectedNLP, self).__init__(original_nlp)
         self._primals_ordering = list(primals_ordering)
         self._original_idxs = None
         self._projected_idxs = None
-        self._generate_maps()
+        self._generate_maps(timer=timer)
         self._projected_primals = self.init_primals()
         self._jacobian_nz_mask = None
         self._hessian_nz_mask = None
         self._nnz_jacobian = None
         self._nnz_hessian_lag = None
 
+        timer.start("con_maps")
         n_con_original = self._original_nlp.n_constraints()
         original_con_coords = np.arange(n_con_original)
         if constraints_ordering is None:
@@ -221,20 +226,33 @@ class ProjectedNLP(_BaseNLPDelegator):
         #self._projected_constraint_map = {
         #    j: i for i, j in enumerate(self._constraints_ordering)
         #}
+        timer.stop("con_maps")
         self._mask_objective = mask_objective
         self._default_objective = 0.0
 
-    def _generate_maps(self):
+    def _generate_maps(self, timer=None):
+        if timer is None:
+            from pyomo.common.timing import HierarchicalTimer
+            timer = HierarchicalTimer()
+        # What is so slow in this method?
         if self._original_idxs is None or self._projected_idxs is None:
+            # _primals_odering is just a list of names. This inverts the list.
+            # Shouldn't be slow.
             primals_ordering_dict = {k:i for i,k in enumerate(self._primals_ordering)}
+            # This generates all the names in the original NLP - could be slow.
+            timer.start("primals_names")
             original_names = self._original_nlp.primals_names()
+            timer.stop("primals_names")
             original_idxs = list()
             projected_idxs = list()
+            # Here we loop over names in the original NLP. This is slow.
+            timer.start("names-loop")
             for i,nm in enumerate(original_names):
                 if nm in primals_ordering_dict:
                     # we need the reordering for this element
                     original_idxs.append(i)
                     projected_idxs.append(primals_ordering_dict[nm])
+            timer.stop("names-loop")
             self._original_idxs = np.asarray(original_idxs)
             self._projected_idxs = np.asarray(projected_idxs)
             self._original_to_projected = np.nan*np.zeros(self._original_nlp.n_primals())
@@ -438,14 +456,20 @@ class ProjectedExtendedNLP(ProjectedNLP, _ExtendedNLPDelegator):
         primals_ordering,
         constraints_ordering=None,
         mask_objective=False,
+        timer=None,
     ):
+        if timer is None:
+            from pyomo.common.timing import HierarchicalTimer
+            timer = HierarchicalTimer()
         super(ProjectedExtendedNLP, self).__init__(
             original_nlp,
             primals_ordering,
             constraints_ordering=constraints_ordering,
             mask_objective=mask_objective,
+            timer=timer,
         )
         self._jacobian_eq_nz_mask = None
+        timer.start("con_maps")
         # Here, I should convert constraints_ordering to two separate
         # index arrays: One indicating which equality constraints are
         # retained in the projection, and one indicating which inequality
@@ -497,6 +521,8 @@ class ProjectedExtendedNLP(ProjectedNLP, _ExtendedNLPDelegator):
         ineq_orig_to_proj[ineq_con_order] = np.arange(n_ineq_proj)
         self._eq_original_to_projected = eq_orig_to_proj
         self._ineq_original_to_projected = ineq_orig_to_proj
+
+        timer.stop("con_maps")
 
         ## Set up maps for indices in the ProjectedNLP full-constraint vector
         ## to the equality/inequality vectors.
