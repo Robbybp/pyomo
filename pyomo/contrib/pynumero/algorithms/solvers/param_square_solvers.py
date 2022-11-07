@@ -37,6 +37,9 @@ from pyomo.contrib.pynumero.algorithms.solvers.square_solver_base import (
 )
 from pyomo.contrib.pynumero.algorithms.solvers.scipy_solvers import (
     FsolveNlpSolver,
+    RootNlpSolver,
+    NewtonNlpSolver,
+    SecantNewtonNlpSolver,
 )
 from pyomo.contrib.incidence_analysis.interface import (
     get_structural_incidence_matrix,
@@ -61,12 +64,34 @@ class CyIpoptSolverWrapper(object):
     API required by ParameterizedSquareSolvers.
 
     """
-    def __init__(self, nlp, options=None):
+    def __init__(self, nlp, options=None, timer=None):
         self._cyipopt_nlp = CyIpoptNLP(nlp)
         self._cyipopt_solver = CyIpoptSolver(self._cyipopt_nlp, options=options)
 
     def solve(self, **kwds):
         return self._cyipopt_solver.solve(**kwds)
+
+
+class ScipySolverWrapper(object):
+    def __init__(self, nlp, timer=None, options=None):
+        if options is None:
+            options = {}
+        options = dict(options) # Copy options dict so we don't modify
+        if nlp.n_primals() == 1:
+            #options["secant"] = True
+            solver = NewtonNlpSolver(nlp, timer=timer, options=options)
+            solver = SecantNewtonNlpSolver(nlp, timer=timer, options=options)
+        else:
+            options["method"] = "lm"
+            #solver = FsolveNlpSolver(nlp, options=options)
+            solver = RootNlpSolver(nlp, timer=timer, options=options)
+        self._nlp = nlp
+        self._options = options
+        self._solver = solver
+
+    def solve(self, x0=None):
+        res = self._solver.solve(x0=x0)
+        return res
 
 
 class SquareDecompositionSolver(ParameterizedSquareSolver):
