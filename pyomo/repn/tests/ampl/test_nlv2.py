@@ -23,8 +23,15 @@ from pyomo.common.tempfiles import TempfileManager
 from pyomo.core.expr.current import Expr_if, inequality
 from pyomo.core.base.expression import ScalarExpression
 from pyomo.environ import (
-    ConcreteModel, Objective, Param, Var, log, ExternalFunction, Suffix,
+    ConcreteModel,
+    Objective,
+    Param,
+    Var,
+    log,
+    ExternalFunction,
+    Suffix,
     Constraint,
+    Expression,
 )
 
 
@@ -40,7 +47,7 @@ class INFO(object):
         self.var_map = nl_writer._deterministic_dict()
         self.used_named_expressions = set()
         self.symbolic_solver_labels = symbolic
-        
+
         self.visitor = nl_writer.AMPLRepnVisitor(
             self.template,
             self.subexpression_cache,
@@ -52,8 +59,8 @@ class INFO(object):
             True,
         )
 
-class Test_AMPLRepnVisitor(unittest.TestCase):
 
+class Test_AMPLRepnVisitor(unittest.TestCase):
     def test_divide(self):
         m = ConcreteModel()
         m.p = Param(mutable=True, initialize=1)
@@ -93,7 +100,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
 
         info = INFO()
         with LoggingIntercept() as LOG:
-            repn = info.visitor.walk_expression(((4*m.x) / m.p, None, None))
+            repn = info.visitor.walk_expression(((4 * m.x) / m.p, None, None))
         self.assertEqual(LOG.getvalue(), "")
         self.assertEqual(repn.nl, None)
         self.assertEqual(repn.mult, 1)
@@ -103,7 +110,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
 
         info = INFO()
         with LoggingIntercept() as LOG:
-            repn = info.visitor.walk_expression((4*(m.x + 2) / m.p, None, None))
+            repn = info.visitor.walk_expression((4 * (m.x + 2) / m.p, None, None))
         self.assertEqual(LOG.getvalue(), "")
         self.assertEqual(repn.nl, None)
         self.assertEqual(repn.mult, 1)
@@ -119,7 +126,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
         self.assertEqual(repn.mult, 1)
         self.assertEqual(repn.const, 0)
         self.assertEqual(repn.linear, {})
-        self.assertEqual(repn.nonlinear,('o2\nn0.5\no5\nv%s\nn2\n', [id(m.x)]))
+        self.assertEqual(repn.nonlinear, ('o2\nn0.5\no5\nv%s\nn2\n', [id(m.x)]))
 
         info = INFO()
         with LoggingIntercept() as LOG:
@@ -129,8 +136,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
         self.assertEqual(repn.mult, 1)
         self.assertEqual(repn.const, 0)
         self.assertEqual(repn.linear, {})
-        self.assertEqual(repn.nonlinear,
-                         ('o3\no43\nv%s\nv%s\n', [id(m.x), id(m.x)]))
+        self.assertEqual(repn.nonlinear, ('o3\no43\nv%s\nv%s\n', [id(m.x), id(m.x)]))
 
     def test_errors_divide_by_0(self):
         m = ConcreteModel()
@@ -144,7 +150,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
             LOG.getvalue(),
             "Exception encountered evaluating expression 'div(1, 0)'\n"
             "\tmessage: division by zero\n"
-            "\texpression: 1/p\n"
+            "\texpression: 1/p\n",
         )
         self.assertEqual(repn.nl, None)
         self.assertEqual(repn.mult, 1)
@@ -159,23 +165,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
             LOG.getvalue(),
             "Exception encountered evaluating expression 'div(1, 0)'\n"
             "\tmessage: division by zero\n"
-            "\texpression: 1/p\n"
-        )
-        self.assertEqual(repn.nl, None)
-        self.assertEqual(repn.mult, 1)
-        self.assertTrue(math.isnan(repn.const))
-        self.assertEqual(repn.linear, {})
-        self.assertEqual(repn.nonlinear, None)
-
-
-        info = INFO()
-        with LoggingIntercept() as LOG:
-            repn = info.visitor.walk_expression(((3*m.x) / m.p, None, None))
-        self.assertEqual(
-            LOG.getvalue(),
-            "Exception encountered evaluating expression 'div(3, 0)'\n"
-            "\tmessage: division by zero\n"
-            "\texpression: 3*x/p\n"
+            "\texpression: 1/p\n",
         )
         self.assertEqual(repn.nl, None)
         self.assertEqual(repn.mult, 1)
@@ -185,12 +175,27 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
 
         info = INFO()
         with LoggingIntercept() as LOG:
-            repn = info.visitor.walk_expression((3*(m.x + 2) / m.p, None, None))
+            repn = info.visitor.walk_expression(((3 * m.x) / m.p, None, None))
         self.assertEqual(
             LOG.getvalue(),
             "Exception encountered evaluating expression 'div(3, 0)'\n"
             "\tmessage: division by zero\n"
-            "\texpression: 3*(x + 2)/p\n"
+            "\texpression: 3*x/p\n",
+        )
+        self.assertEqual(repn.nl, None)
+        self.assertEqual(repn.mult, 1)
+        self.assertTrue(math.isnan(repn.const))
+        self.assertEqual(repn.linear, {})
+        self.assertEqual(repn.nonlinear, None)
+
+        info = INFO()
+        with LoggingIntercept() as LOG:
+            repn = info.visitor.walk_expression((3 * (m.x + 2) / m.p, None, None))
+        self.assertEqual(
+            LOG.getvalue(),
+            "Exception encountered evaluating expression 'div(3, 0)'\n"
+            "\tmessage: division by zero\n"
+            "\texpression: 3*(x + 2)/p\n",
         )
         self.assertEqual(repn.nl, None)
         self.assertEqual(repn.mult, 1)
@@ -205,7 +210,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
             LOG.getvalue(),
             "Exception encountered evaluating expression 'div(1, 0)'\n"
             "\tmessage: division by zero\n"
-            "\texpression: x**2/p\n"
+            "\texpression: x**2/p\n",
         )
         self.assertEqual(repn.nl, None)
         self.assertEqual(repn.mult, 1)
@@ -259,7 +264,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
 
         info = INFO()
         with LoggingIntercept() as LOG:
-            repn = info.visitor.walk_expression((m.p*(1 / m.p), None, None))
+            repn = info.visitor.walk_expression((m.p * (1 / m.p), None, None))
         self.assertIn(
             "Exception encountered evaluating expression 'div(1, 0)'\n"
             "\tmessage: division by zero\n"
@@ -274,7 +279,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
 
         info = INFO()
         with LoggingIntercept() as LOG:
-            repn = info.visitor.walk_expression(((1 / m.p)*m.p, None, None))
+            repn = info.visitor.walk_expression(((1 / m.p) * m.p, None, None))
         self.assertIn(
             "Exception encountered evaluating expression 'div(1, 0)'\n"
             "\tmessage: division by zero\n"
@@ -289,7 +294,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
 
         info = INFO()
         with LoggingIntercept() as LOG:
-            repn = info.visitor.walk_expression((m.p*(m.x / m.p), None, None))
+            repn = info.visitor.walk_expression((m.p * (m.x / m.p), None, None))
         self.assertIn(
             "Exception encountered evaluating expression 'div(1, 0)'\n"
             "\tmessage: division by zero\n"
@@ -304,7 +309,9 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
 
         info = INFO()
         with LoggingIntercept() as LOG:
-            repn = info.visitor.walk_expression((m.p*(3*(m.x + 2) / m.p), None, None))
+            repn = info.visitor.walk_expression(
+                (m.p * (3 * (m.x + 2) / m.p), None, None)
+            )
         self.assertIn(
             "Exception encountered evaluating expression 'div(3, 0)'\n"
             "\tmessage: division by zero\n"
@@ -319,7 +326,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
 
         info = INFO()
         with LoggingIntercept() as LOG:
-            repn = info.visitor.walk_expression((m.p*(m.x**2 / m.p), None, None))
+            repn = info.visitor.walk_expression((m.p * (m.x**2 / m.p), None, None))
         self.assertIn(
             "Exception encountered evaluating expression 'div(1, 0)'\n"
             "\tmessage: division by zero\n"
@@ -337,8 +344,10 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
         m.p = Param(mutable=True, initialize=0)
         m.x = Var()
 
-        nl_writer.HALT_ON_EVALUATION_ERROR, tmp \
-            = True, nl_writer.HALT_ON_EVALUATION_ERROR
+        nl_writer.HALT_ON_EVALUATION_ERROR, tmp = (
+            True,
+            nl_writer.HALT_ON_EVALUATION_ERROR,
+        )
         try:
             info = INFO()
             with LoggingIntercept() as LOG, self.assertRaises(ZeroDivisionError):
@@ -347,7 +356,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
                 LOG.getvalue(),
                 "Exception encountered evaluating expression 'div(1, 0)'\n"
                 "\tmessage: division by zero\n"
-                "\texpression: 1/p\n"
+                "\texpression: 1/p\n",
             )
 
             info = INFO()
@@ -357,18 +366,18 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
                 LOG.getvalue(),
                 "Exception encountered evaluating expression 'div(1, 0)'\n"
                 "\tmessage: division by zero\n"
-                "\texpression: 1/p\n"
+                "\texpression: 1/p\n",
             )
 
             info = INFO()
             with LoggingIntercept() as LOG, self.assertRaises(ZeroDivisionError):
-                info.visitor.walk_expression((3*(m.x + 2) / m.p, None, None))
+                info.visitor.walk_expression((3 * (m.x + 2) / m.p, None, None))
             self.assertEqual(
                 LOG.getvalue(),
                 "Exception encountered evaluating expression 'div(3, 0)'\n"
                 "\tmessage: division by zero\n"
-                "\texpression: 3*(x + 2)/p\n"
-        )
+                "\texpression: 3*(x + 2)/p\n",
+            )
 
             info = INFO()
             with LoggingIntercept() as LOG, self.assertRaises(ZeroDivisionError):
@@ -377,8 +386,8 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
                 LOG.getvalue(),
                 "Exception encountered evaluating expression 'div(1, 0)'\n"
                 "\tmessage: division by zero\n"
-                "\texpression: x**2/p\n"
-        )
+                "\texpression: x**2/p\n",
+            )
         finally:
             nl_writer.HALT_ON_EVALUATION_ERROR = tmp
 
@@ -389,12 +398,12 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
 
         info = INFO()
         with LoggingIntercept() as LOG:
-            repn = info.visitor.walk_expression((m.p**(0.5), None, None))
+            repn = info.visitor.walk_expression((m.p ** (0.5), None, None))
         self.assertEqual(
             LOG.getvalue(),
             "Exception encountered evaluating expression 'pow(-1, 0.5)'\n"
             "\tmessage: Pyomo does not support complex numbers\n"
-            "\texpression: p**0.5\n"
+            "\texpression: p**0.5\n",
         )
         self.assertEqual(repn.nl, None)
         self.assertEqual(repn.mult, 1)
@@ -410,7 +419,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
             LOG.getvalue(),
             "Exception encountered evaluating expression 'pow(-1, 0.5)'\n"
             "\tmessage: Pyomo does not support complex numbers\n"
-            "\texpression: p**x\n"
+            "\texpression: p**x\n",
         )
         self.assertEqual(repn.nl, None)
         self.assertEqual(repn.mult, 1)
@@ -430,7 +439,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
             LOG.getvalue(),
             "Exception encountered evaluating expression 'log(0)'\n"
             "\tmessage: math domain error\n"
-            "\texpression: log(p)\n"
+            "\texpression: log(p)\n",
         )
         self.assertEqual(repn.nl, None)
         self.assertEqual(repn.mult, 1)
@@ -445,7 +454,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
         m.y = Var()
         m.y.fix(1)
 
-        expr = m.y**2 * m.x**2 * (((3*m.x)/m.p) * m.x ) / m.y
+        expr = m.y**2 * m.x**2 * (((3 * m.x) / m.p) * m.x) / m.y
 
         info = INFO()
         with LoggingIntercept() as LOG:
@@ -454,7 +463,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
             LOG.getvalue(),
             "Exception encountered evaluating expression 'div(3, 0)'\n"
             "\tmessage: division by zero\n"
-            "\texpression: 3*x/p\n"
+            "\texpression: 3*x/p\n",
         )
         self.assertEqual(repn.nl, None)
         self.assertEqual(repn.mult, 1)
@@ -468,7 +477,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
 
         info = INFO()
         with LoggingIntercept() as LOG:
-            repn = info.visitor.walk_expression((m.x**(0.5), None, None))
+            repn = info.visitor.walk_expression((m.x ** (0.5), None, None))
         self.assertEqual(LOG.getvalue(), "")
         self.assertEqual(repn.nl, None)
         self.assertEqual(repn.mult, 1)
@@ -479,7 +488,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
         m.x.fix()
         info = INFO()
         with LoggingIntercept() as LOG:
-            repn = info.visitor.walk_expression((m.x**(0.5), None, None))
+            repn = info.visitor.walk_expression((m.x ** (0.5), None, None))
         self.assertEqual(LOG.getvalue(), "")
         self.assertEqual(repn.nl, None)
         self.assertEqual(repn.mult, 1)
@@ -551,9 +560,10 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
         self.assertEqual(repn.mult, 1)
         self.assertEqual(repn.const, 0)
         self.assertEqual(repn.linear, {})
-        self.assertEqual(repn.nonlinear,
-                         ('o35\no23\nv%s\nn4\no5\nv%s\nn2\nv%s\n',
-                          [id(m.x), id(m.x), id(m.y)]))
+        self.assertEqual(
+            repn.nonlinear,
+            ('o35\no23\nv%s\nn4\no5\nv%s\nn2\nv%s\n', [id(m.x), id(m.x), id(m.y)]),
+        )
 
         m.x.fix()
         info = INFO()
@@ -574,7 +584,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
         self.assertEqual(repn.nl, None)
         self.assertEqual(repn.mult, 1)
         self.assertEqual(repn.const, 0)
-        self.assertEqual(repn.linear, {id(m.y):1})
+        self.assertEqual(repn.linear, {id(m.y): 1})
         self.assertEqual(repn.nonlinear, None)
 
     def test_eval_expr_if_Eq(self):
@@ -591,9 +601,10 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
         self.assertEqual(repn.mult, 1)
         self.assertEqual(repn.const, 0)
         self.assertEqual(repn.linear, {})
-        self.assertEqual(repn.nonlinear,
-                         ('o35\no24\nv%s\nn4\no5\nv%s\nn2\nv%s\n',
-                          [id(m.x), id(m.x), id(m.y)]))
+        self.assertEqual(
+            repn.nonlinear,
+            ('o35\no24\nv%s\nn4\no5\nv%s\nn2\nv%s\n', [id(m.x), id(m.x), id(m.y)]),
+        )
 
         m.x.fix()
         info = INFO()
@@ -614,7 +625,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
         self.assertEqual(repn.nl, None)
         self.assertEqual(repn.mult, 1)
         self.assertEqual(repn.const, 0)
-        self.assertEqual(repn.linear, {id(m.y):1})
+        self.assertEqual(repn.linear, {id(m.y): 1})
         self.assertEqual(repn.nonlinear, None)
 
     def test_eval_expr_if_ranged(self):
@@ -633,8 +644,11 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
         self.assertEqual(repn.linear, {})
         self.assertEqual(
             repn.nonlinear,
-            ('o35\no21\no23\nn1\nv%s\no23\nv%s\nn4\no5\nv%s\nn2\nv%s\n',
-             [id(m.x), id(m.x), id(m.x), id(m.y)]))
+            (
+                'o35\no21\no23\nn1\nv%s\no23\nv%s\nn4\no5\nv%s\nn2\nv%s\n',
+                [id(m.x), id(m.x), id(m.x), id(m.y)],
+            ),
+        )
 
         m.x.fix()
         info = INFO()
@@ -655,7 +669,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
         self.assertEqual(repn.nl, None)
         self.assertEqual(repn.mult, 1)
         self.assertEqual(repn.const, 0)
-        self.assertEqual(repn.linear, {id(m.y):1})
+        self.assertEqual(repn.linear, {id(m.y): 1})
         self.assertEqual(repn.nonlinear, None)
 
         m.x.fix(0)
@@ -666,7 +680,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
         self.assertEqual(repn.nl, None)
         self.assertEqual(repn.mult, 1)
         self.assertEqual(repn.const, 0)
-        self.assertEqual(repn.linear, {id(m.y):1})
+        self.assertEqual(repn.linear, {id(m.y): 1})
         self.assertEqual(repn.nonlinear, None)
 
     def test_custom_named_expression(self):
@@ -695,7 +709,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
         self.assertEqual(repn.nl, ('v%s\n', (id(m.e),)))
         self.assertEqual(repn.mult, 1)
         self.assertEqual(repn.const, 3)
-        self.assertEqual(repn.linear, [(id(m.x), 1)])
+        self.assertEqual(repn.linear, {id(m.x): 1})
         self.assertEqual(repn.nonlinear, None)
         self.assertEqual(info, [None, None, False])
 
@@ -709,7 +723,7 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
         m = ConcreteModel()
         m.x = Var()
         m.p = Param(initialize=0, mutable=True)
-        expr = (1/m.x) == m.p
+        expr = (1 / m.x) == m.p
 
         info = INFO()
         with LoggingIntercept() as LOG:
@@ -719,10 +733,38 @@ class Test_AMPLRepnVisitor(unittest.TestCase):
         self.assertEqual(repn.mult, 1)
         self.assertEqual(repn.const, 0)
         self.assertEqual(repn.linear, {})
-        self.assertEqual(
-            repn.nonlinear,
-            ('o24\no3\nn1\nv%s\nn0\n', [id(m.x)])
-        )
+        self.assertEqual(repn.nonlinear, ('o24\no3\nn1\nv%s\nn0\n', [id(m.x)]))
+
+    def test_duplicate_shared_linear_expressions(self):
+        # This tests an issue where AMPLRepn.duplicate() was not copying
+        # the linear dict, allowing certain operations (like finalizing
+        # a bare expression multiplied by something other than 1) to
+        # change the compiled shared expression
+        m = ConcreteModel()
+        m.x = Var()
+        m.y = Var()
+        m.e = Expression(expr=2*m.x + 3*m.y)
+
+        expr1 = 10*m.e
+        expr2 = m.e + 100*m.x + 100*m.y
+
+        info = INFO()
+        with LoggingIntercept() as LOG:
+            repn1 = info.visitor.walk_expression((expr1, None, None))
+            repn2 = info.visitor.walk_expression((expr2, None, None))
+        self.assertEqual(LOG.getvalue(), "")
+        self.assertEqual(repn1.nl, None)
+        self.assertEqual(repn1.mult, 1)
+        self.assertEqual(repn1.const, 0)
+        self.assertEqual(repn1.linear, {id(m.x): 20, id(m.y): 30})
+        self.assertEqual(repn1.nonlinear, None)
+
+        self.assertEqual(repn2.nl, None)
+        self.assertEqual(repn2.mult, 1)
+        self.assertEqual(repn2.const, 0)
+        self.assertEqual(repn2.linear, {id(m.x): 102, id(m.y): 103})
+        self.assertEqual(repn2.nonlinear, None)
+
 
 class Test_NLWriter(unittest.TestCase):
     def test_external_function_str_args(self):
@@ -738,7 +780,7 @@ class Test_NLWriter(unittest.TestCase):
         self.assertIn(
             "Writing NL file containing string arguments to a "
             "text output stream with line endings other than '\\n' ",
-            LOG.getvalue()
+            LOG.getvalue(),
         )
 
         # Test system-dependent newline translation
@@ -753,11 +795,11 @@ class Test_NLWriter(unittest.TestCase):
             self.assertIn(
                 "Writing NL file containing string arguments to a "
                 "text output stream with line endings other than '\\n' ",
-                LOG.getvalue()
+                LOG.getvalue(),
             )
 
         # Test objects lacking 'tell':
-        r,w = os.pipe()
+        r, w = os.pipe()
         try:
             OUT = os.fdopen(w, 'w')
             with LoggingIntercept() as LOG:
@@ -768,7 +810,7 @@ class Test_NLWriter(unittest.TestCase):
                 self.assertIn(
                     "Writing NL file containing string arguments to a "
                     "text output stream that does not support tell()",
-                    LOG.getvalue()
+                    LOG.getvalue(),
                 )
         finally:
             OUT.close()
@@ -779,13 +821,15 @@ class Test_NLWriter(unittest.TestCase):
         m.junk = Suffix(direction=Suffix.EXPORT)
         m.x = Var()
         m.y = Var()
-        m.z = Var([1,2,3])
+        m.z = Var([1, 2, 3])
         m.o = Objective(expr=m.x + m.z[2])
-        m.c = Constraint(expr=m.y <=0)
+        m.c = Constraint(expr=m.y <= 0)
         m.c.deactivate()
-        @m.Constraint([1,2,3])
+
+        @m.Constraint([1, 2, 3])
         def d(m, i):
             return m.z[i] <= 0
+
         m.d.deactivate()
         m.d[2].activate()
         m.junk[m.x] = 1
