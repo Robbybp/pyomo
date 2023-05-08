@@ -288,8 +288,12 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
 
         jgy_t = jgy.transpose()
         jfy_t = jfy.transpose()
+        #
+        # TODO: This solve needs to return a sparse matrix
+        #
         dfdg = -sps.linalg.splu(jgy_t.tocsc()).solve(jfy_t.toarray())
         resid_multipliers = np.array(resid_multipliers)
+        # Nothing needs to change about this matrix-vector product
         external_multipliers = dfdg.dot(resid_multipliers)
         return external_multipliers
 
@@ -308,6 +312,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         hlxx = nlp.extract_submatrix_hessian_lag(x, x)
         hlxy = nlp.extract_submatrix_hessian_lag(x, y)
         hlyy = nlp.extract_submatrix_hessian_lag(y, y)
+        # These are sparse matrices
         return hlxx, hlxy, hlyy
 
     def calculate_reduced_hessian_lagrangian(self, hlxx, hlxy, hlyy):
@@ -319,13 +324,19 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         """
         # Converting to dense is faster for the distillation
         # example. Does this make sense?
+        #
+        # TODO: These will need to remain sparse matrices
+        #
         hlxx = hlxx.toarray()
         hlxy = hlxy.toarray()
         hlyy = hlyy.toarray()
         dydx = self.evaluate_jacobian_external_variables()
         term1 = hlxx
+        # This will need to be a sparse matrix product
         prod = hlxy.dot(dydx)
+        # This addition should not need to change
         term2 = prod + prod.transpose()
+        # These will need to be sparse matrix products
         term3 = hlyy.dot(dydx).transpose().dot(dydx)
         hess_lag = term1 + term2 + term3
         return hess_lag
@@ -346,6 +357,9 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         jgx = nlp.extract_submatrix_jacobian(x, g)
         jgy = nlp.extract_submatrix_jacobian(y, g)
 
+        #
+        # NOTE: This is unused
+        #
         nf = len(f)
         nx = len(x)
         n_entries = nf * nx
@@ -354,12 +368,21 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         # My intuition is that it does only if jgy is "decomposable"
         # in the strongly connected component sense, which is probably
         # not usually the case.
+        #
+        # TODO: this will have to result in a sparse matrix
+        #
         dydx = -1 * sps.linalg.splu(jgy.tocsc()).solve(jgx.toarray())
         # NOTE: PyNumero block matrices require this to be a sparse matrix
         # that contains coordinates for every entry that could possibly
         # be nonzero. Here, this is all of the entries.
+        #
+        # TODO: This will need to be a sparse matrix product
+        #
         dfdx = jfx + jfy.dot(dydx)
 
+        #
+        # Ideally, this matrix is already sparse
+        #
         full_sparse = _dense_to_full_sparse(dfdx)
 
         self._timer.stop("jacobian")
@@ -373,6 +396,9 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         jgx = nlp.extract_submatrix_jacobian(x, g)
         jgy = nlp.extract_submatrix_jacobian(y, g)
         jgy_csc = jgy.tocsc()
+        #
+        # This solve will have to yield a sparse matrix
+        #
         dydx = -1 * sps.linalg.splu(jgy_csc).solve(jgx.toarray())
         return dydx
 
