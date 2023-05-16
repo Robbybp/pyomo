@@ -168,7 +168,12 @@ class CondensedSparseSummation(object):
             nz_tuples.update(zip(m.row, m.col))
         nz_tuples = sorted(nz_tuples)
         self._nz_tuples = nz_tuples
-        self._row, self._col = list(zip(*nz_tuples))
+        if self._nz_tuples:
+            # This line fails if there are no nonzeros
+            self._row, self._col = list(zip(*nz_tuples))
+        else:
+            self._row = np.array([], dtype=int)
+            self._col = np.array([], dtype=int)
         row_col_to_nz_map = {t: i for i, t in enumerate(nz_tuples)}
 
         self._shape = None
@@ -198,3 +203,39 @@ class CondensedSparseSummation(object):
             (data, (np.copy(self._row), np.copy(self._col))), shape=self._shape
         )
         return ret
+
+
+def structure_preserving_product(mat1, mat2):
+    # TODO: Performance considerations of converting to COO?
+    mat1 = mat1.tocoo()
+    mat2 = mat2.tocoo()
+
+    mat1_ones = coo_matrix(
+        (np.ones(mat1.nnz), (mat1.row, mat1.col)), shape=mat1.shape, dtype=int
+    )
+    mat2_ones = coo_matrix(
+        (np.ones(mat2.nnz), (mat2.row, mat2.col)), shape=mat2.shape, dtype=int
+    )
+    structural_prod = mat1_ones.dot(mat2_ones).tocoo()
+    numeric_prod = mat1.dot(mat2).tocoo()
+
+    assert structural_prod.shape == numeric_prod.shape
+    nrow, ncol = structural_prod.shape
+
+    # Get the coordinates in the row-major "flattened array" of the nonzeros
+    structural_flat_coords = ncol*structural_prod.row + structural_prod.col
+    numeric_flat_coords = ncol*numeric_prod.row + numeric_prod.col
+
+    # Get elements that are in the structural nonzeros but not numeric nonzeros
+    mask = ~np.isin(structural_flat_coords, numeric_flat_coords)
+    explicit_zero_flat_coords = structural_flat_coords[mask]
+
+    explicit_zero_row, explicit_zero_col = np.divmod(explicit_zero_flat_coords, ncol)
+    n_explicit_zero = explicit_zero_flat_coords.shape[0]
+    explicit_zero_data = np.zeros(n_explicit_zero, dtype=float)
+
+    prod_row = np.concatenate((numeric_prod.row, explicit_zero_row))
+    prod_col = np.concatenate((numeric_prod.col, explicit_zero_col))
+    prod_data = np.concatenate((numeric_prod.data, explicit_zero_data))
+    prod = coo_matrix((prod_data, (prod_row, prod_col)), shape=(nrow, ncol))
+    return prod
