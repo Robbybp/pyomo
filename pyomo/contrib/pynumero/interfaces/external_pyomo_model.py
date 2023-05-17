@@ -393,6 +393,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         x = self.input_vars
         y = self.external_vars
         g = self.external_cons
+        # TODO: Performance benefit of caching indices so we don't have to
+        # repeatedly look them up (via Python hash).
         jgx = nlp.extract_submatrix_jacobian(x, g)
         jgy = nlp.extract_submatrix_jacobian(y, g)
         jgy_csc = jgy.tocsc()
