@@ -239,3 +239,210 @@ def structure_preserving_product(mat1, mat2):
     prod_data = np.concatenate((numeric_prod.data, explicit_zero_data))
     prod = coo_matrix((prod_data, (prod_row, prod_col)), shape=(nrow, ncol))
     return prod
+
+
+import numpy as np
+import scipy.sparse as sps
+import itertools
+from pyomo.contrib.incidence_analysis.triangularize import (
+    _get_scc_dag_of_projection,
+)
+import networkx.algorithms.bipartite as nxb
+import networkx.algorithms.dag as nxd
+
+
+def _dense_to_full_sparse(matrix):
+    """
+    Used to convert a dense matrix (2d NumPy array) to SciPy sparse matrix
+    with explicit coordinates for every entry, including zeros. This is
+    used because _ExternalGreyBoxAsNLP methods rely on receiving sparse
+    matrices where sparsity structure does not change between calls.
+    This is difficult to achieve for matrices obtained via the implicit
+    function theorem unless an entry is returned for every coordinate
+    of the matrix.
+
+    Note that this does not mean that the Hessian of the entire NLP will
+    be dense, only that the block corresponding to this external model
+    will be dense.
+    """
+    # TODO: Allow methods to hard-code Jacobian/Hessian sparsity structure
+    # in the case it is known a priori.
+    # TODO: Decompose matrices to infer maximum fill-in sparsity structure.
+    nrow, ncol = matrix.shape
+    row = []
+    col = []
+    data = []
+    for i, j in itertools.product(range(nrow), range(ncol)):
+        row.append(i)
+        col.append(j)
+        data.append(matrix[i, j])
+    row = np.array(row)
+    col = np.array(col)
+    data = np.array(data)
+    return sps.coo_matrix((data, (row, col)), shape=(nrow, ncol))
+
+
+def block_triangularize_with_dag(matrix):
+    nrow, ncol = matrix.shape
+    graph = nxb.matrix.from_biadjacency_matrix(matrix)
+    row_nodes = list(range(nrow))
+    matching = nxb.maximum_matching(graph, top_nodes=row_nodes)
+    scc_list, dag = _get_scc_dag_of_projection(graph, row_nodes, matching)
+    # This order maps coordinates in the sorted space to coordinates in the
+    # original space.
+    scc_order = list(nxd.lexicographical_topological_sort(dag))
+    sccs = [
+        sorted([(i, matching[i]) for i in scc_list[scc_idx]])
+        for scc_idx in scc_order
+    ]
+    row_partition = [[i for i, j in scc] for scc in sccs]
+    col_partition = [[j - nrow for i, j in scc] for scc in sccs]
+
+    original_to_sorted = np.argsort(scc_order)
+
+    # Reverse so that we map each SCC to those it depends on.
+    rev_dag = dag.reverse()
+    # Store DAG as adjacency list
+    dag_ll = [list(rev_dag[i]) for i in range(len(sccs))]
+
+    # Map adjacent nodes to nodes in the sorted space
+    # This is like looking up the "location" of each node.
+    dag_ll = [[original_to_sorted[idx] for idx in adj] for adj in dag_ll]
+
+    # These nodes are implicitly already in sorted order
+    # This is like putting the nodes in order
+    dag_ll = [dag_ll[idx] for idx in scc_order]
+    return row_partition, col_partition, dag_ll
+
+
+def extract_submatrix(matrix, rows, cols):
+    """
+    Parameters
+    ----------
+    matrix: scipy.sparse matrix
+    rows: numpy.ndarray
+        Array of row indices
+    cols: numpy.ndarray
+        Array of col indices
+
+    """
+    matrix = matrix.tocoo()
+    nrow, ncol = matrix.shape
+    sub_nrow = len(rows)
+    sub_ncol = len(cols)
+
+    # Create mask indicating which matrix entries to keep
+    mask = np.isin(matrix.row, rows)
+    mask &= np.isin(matrix.col, cols)
+    # In addition to knowing whether we are in "rows", I would like to
+    # know where we are in "rows"
+
+    # Create maps from original coordinates to their locations in submatrix
+    # TODO: What is a good placeholder here?
+    row_old_to_new = -np.ones(nrow)
+    # Replace coordinates we want to extract with their location in the
+    # provided coordinate arrays.
+    row_old_to_new[rows] = np.arange(sub_nrow)
+    col_old_to_new = -np.ones(ncol)
+    col_old_to_new[cols] = np.arange(sub_ncol)
+
+    # Extract only the entries we want to keep
+    sub_row = matrix.row[mask]
+    sub_col = matrix.col[mask]
+    sub_data = matrix.data[mask]
+    # I want the location of each of these coordinates in the user-provided
+    # coordinate arrays
+    # Seems like there should be a more efficient way to do this.
+
+    # Map coordinates in full matrix to coordinates in submatrix
+    sub_row = row_old_to_new[sub_row]
+    sub_col = col_old_to_new[sub_col]
+
+    # Reorder 
+    submatrix = sps.coo_matrix(
+        (sub_data, (sub_row, sub_col)), shape=(sub_nrow, sub_ncol)
+    )
+    return submatrix
+
+
+def structure_preserving_solve(matrix, rhs):
+    """
+    Parameters
+    ----------
+    matrix: scipy.sparse matrix
+        The square matrix defining the linear system to solve
+    rhs: scipy.sparse matrix
+        The right-hand-side matrix
+
+    Returns
+    -------
+    scipy.sparse matrix
+        The solution matrix
+
+    """
+    nrow, ncol = matrix.shape
+    assert nrow == ncol
+    dim = nrow
+    nrow, nrhs = rhs.shape
+    assert nrow == dim
+
+    rhs_coords = np.arange(nrhs)
+
+    rblocks, cblocks, dag = block_triangularize_with_dag(matrix)
+    lhs_submatrices = [
+        extract_submatrix(matrix, rb, cb) for rb, cb in zip(rblocks, cblocks)
+    ]
+    rhs_submatrices = [
+        extract_submatrix(rhs, rb, rhs_coords) for rb in rblocks
+    ]
+
+    n_blocks = len(rblocks)
+
+    sol_submatrices = []
+    for i in range(n_blocks):
+        lhs = lhs_submatrices[i]
+        incident_blocks = [
+            (j, extract_submatrix(matrix, rblocks[i], cblocks[j]))
+            for j in dag[i] if j != i
+        ]
+
+        rhs_terms = [rhs_submatrices[i]]
+        rhs_terms.extend(
+            -structure_preserving_product(block, sol_submatrices[j])
+            for (j, block) in incident_blocks
+        )
+        sum_helper = CondensedSparseSummation(rhs_terms)
+        rhs = sum_helper.sum(rhs_terms)
+
+        factor = sps.linalg.splu(lhs)
+        rhs_csc = rhs.tocsc()
+        rhs_mask = (rhs_csc.indptr[rhs_coords] < rhs_csc.indptr[rhs_coords + 1])
+        # This array maps column coordinates of the compressed matrix
+        # to column coordinates in the full matrix
+        compressed_to_full = np.arange(nrhs)[rhs_mask]
+
+        if np.any(rhs_mask):
+            compressed_rhs = sps.hstack(
+                tuple(rhs_csc.getcol(j) for j in range(nrhs) if rhs_mask[j])
+            )
+
+            sol_i_compressed = factor.solve(compressed_rhs.toarray())
+            sol_i_compressed = _dense_to_full_sparse(sol_i_compressed)
+
+            #
+            # "Expand" by mapping column coordinates back to the "full space"
+            #
+            sol_i_row = sol_i_compressed.row
+            sol_i_col = compressed_to_full[sol_i_compressed.col]
+            sol_i_data = sol_i_compressed.data
+            sol_i = sps.coo_matrix(
+                (sol_i_data, (sol_i_row, sol_i_col)),
+                shape=(len(rblocks[i]), nrhs),
+            )
+        else:
+            sol_i = sps.coo_matrix((len(rblocks[i]), nrhs))
+
+        sol_submatrices.append(sol_i)
+
+    sol = sps.vstack(sol_submatrices)
+    return sol

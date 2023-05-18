@@ -18,6 +18,7 @@ from pyomo.common.timing import HierarchicalTimer
 from pyomo.util.subsystems import create_subsystem_block
 from pyomo.contrib.pynumero.interfaces.pyomo_nlp import PyomoNLP
 from pyomo.contrib.pynumero.interfaces.external_grey_box import ExternalGreyBoxModel
+from pyomo.contrib.pynumero.interfaces.utils import structure_preserving_solve
 from pyomo.contrib.pynumero.algorithms.solvers.implicit_functions import (
     SccImplicitFunctionSolver,
 )
@@ -291,7 +292,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         #
         # TODO: This solve needs to return a sparse matrix
         #
-        dfdg = -sps.linalg.splu(jgy_t.tocsc()).solve(jfy_t.toarray())
+        #dfdg = -sps.linalg.splu(jgy_t.tocsc()).solve(jfy_t.toarray())
+        dfdg = -structure_preserving_solve(jgy_t.tocsc(), jfy_t)
         resid_multipliers = np.array(resid_multipliers)
         # Nothing needs to change about this matrix-vector product
         external_multipliers = dfdg.dot(resid_multipliers)
@@ -371,7 +373,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         #
         # TODO: this will have to result in a sparse matrix
         #
-        dydx = -1 * sps.linalg.splu(jgy.tocsc()).solve(jgx.toarray())
+        #dydx = -1 * sps.linalg.splu(jgy.tocsc()).solve(jgx.toarray())
+        dydx = -structure_preserving_solve(jgy.tocsc(), jgx)
         # NOTE: PyNumero block matrices require this to be a sparse matrix
         # that contains coordinates for every entry that could possibly
         # be nonzero. Here, this is all of the entries.
@@ -401,8 +404,9 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         #
         # This solve will have to yield a sparse matrix
         #
-        dydx = -1 * sps.linalg.splu(jgy_csc).solve(jgx.toarray())
-        return dydx
+        #dydx = -1 * sps.linalg.splu(jgy_csc).solve(jgx.toarray())
+        dydx = -structure_preserving_solve(jgy_csc, jgx)
+        return dydx.toarray()
 
     def evaluate_hessian_external_variables(self):
         nlp = self._nlp
