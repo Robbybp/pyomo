@@ -444,5 +444,15 @@ def structure_preserving_solve(matrix, rhs):
 
         sol_submatrices.append(sol_i)
 
-    sol = sps.vstack(sol_submatrices)
+    # This is the solution in the row-permuted space
+    perm_sol = sps.vstack(sol_submatrices).tocoo()
+
+    # We apply to the solution rows the column permutation we applied to the
+    # original matrix.
+    row_perm_to_orig = np.array(sum(cblocks, []))
+
+    sol_row = row_perm_to_orig[perm_sol.row]
+    sol_col = perm_sol.col
+    sol_data = perm_sol.data
+    sol = sps.coo_matrix((sol_data, (sol_row, sol_col)), shape=(nrow, nrhs))
     return sol
