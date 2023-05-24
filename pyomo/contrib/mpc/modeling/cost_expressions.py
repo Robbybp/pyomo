@@ -59,7 +59,7 @@ def _get_indexed_parameters(n, time, ctype=Param, initialize=None):
     elif ctype is Var:
         # Create a fixed variables
         comp = ctype(range_set, time, initialize=initialize)
-        comp.fix()
+        # comp.fix() # KH: cannot fix a variable before it is constructed.
     return range_set, comp
 
 

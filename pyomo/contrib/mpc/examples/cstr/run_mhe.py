@@ -68,19 +68,14 @@ def run_cstr_mhe(
     ]
     m_estimator.sample_points = ContinuousSet(initialize=sample_points)
 
-    #
-    # Construct components for measurements and measurement errors
-    #
-    m_estimator.estimation_block = pyo.Block()
-    esti_blo = m_estimator.estimation_block
-
     measured_variables = [pyo.Reference(m_estimator.conc[:, "A"])]
 
     meas_set, measurements = get_parameters_from_variables(
-        measured_variables, m_estimator.sample_points
+        measured_variables, m_estimator.sample_points, ctype=pyo.Var
     )
     m_estimator.measurement_set = meas_set
     m_estimator.measurements = measurements
+    m_estimator.measurements.fix()
 
     #
     # Construct disturbed model constraints
