@@ -18,7 +18,11 @@ from pyomo.common.timing import HierarchicalTimer
 from pyomo.util.subsystems import create_subsystem_block
 from pyomo.contrib.pynumero.interfaces.pyomo_nlp import PyomoNLP
 from pyomo.contrib.pynumero.interfaces.external_grey_box import ExternalGreyBoxModel
-from pyomo.contrib.pynumero.interfaces.utils import structure_preserving_solve
+from pyomo.contrib.pynumero.interfaces.utils import (
+    structure_preserving_solve,
+    CondensedSparseSummation,
+    structure_preserving_product,
+)
 from pyomo.contrib.pynumero.algorithms.solvers.implicit_functions import (
     SccImplicitFunctionSolver,
 )
@@ -50,6 +54,8 @@ def _dense_to_full_sparse(matrix):
     for i, j in itertools.product(range(nrow), range(ncol)):
         row.append(i)
         col.append(j)
+        # Note that this function will work with any matrix that supports
+        # subscripting, e.g. CSR, CSC, or dense
         data.append(matrix[i, j])
     row = np.array(row)
     col = np.array(col)
@@ -262,6 +268,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         cons = self.residual_cons + self.external_cons
         n_con = len(cons)
         assert n_con == self._nlp.n_constraints()
+        # Any reason this is not just self._nlp.get_duals()?
         duals = np.zeros(n_con)
         indices = self._nlp.get_constraint_indices(cons)
         duals[indices] = multipliers
@@ -294,8 +301,10 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         #
         #dfdg = -sps.linalg.splu(jgy_t.tocsc()).solve(jfy_t.toarray())
         dfdg = -structure_preserving_solve(jgy_t.tocsc(), jfy_t)
+
         resid_multipliers = np.array(resid_multipliers)
-        # Nothing needs to change about this matrix-vector product
+        # Nothing needs to change about this matrix-vector product;
+        # the result is a (dense) vector no matter what
         external_multipliers = dfdg.dot(resid_multipliers)
         return external_multipliers
 
@@ -329,18 +338,35 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         #
         # TODO: These will need to remain sparse matrices
         #
-        hlxx = hlxx.toarray()
-        hlxy = hlxy.toarray()
-        hlyy = hlyy.toarray()
+        #hlxx = hlxx.toarray()
+        #hlxy = hlxy.toarray()
+        #hlyy = hlyy.toarray()
         dydx = self.evaluate_jacobian_external_variables()
         term1 = hlxx
         # This will need to be a sparse matrix product
-        prod = hlxy.dot(dydx)
+        # TODO: structure-preserving product
+        #prod = hlxy.dot(dydx)
+        prod = structure_preserving_product(hlxy, dydx)
         # This addition should not need to change
-        term2 = prod + prod.transpose()
+        # TODO: CondensedSparseSummarion
+        #term2 = prod + prod.transpose()
+        prod_t = prod.transpose()
+        t2_adder = CondensedSparseSummation((prod, prod_t))
+        term2 = t2_adder.sum((prod, prod_t))
+
         # These will need to be sparse matrix products
-        term3 = hlyy.dot(dydx).transpose().dot(dydx)
-        hess_lag = term1 + term2 + term3
+        # TODO: structure-preserving product
+        #term3 = hlyy.dot(dydx).transpose().dot(dydx)
+        term3 = structure_preserving_product(
+            structure_preserving_product(
+                hlyy, dydx
+            ).transpose(),
+            dydx,
+        )
+        #hess_lag = term1 + term2 + term3
+        adder = CondensedSparseSummation((term1, term2, term3))
+        hess_lag = adder.sum((term1, term2, term3))
+
         return hess_lag
 
     def evaluate_equality_constraints(self):
@@ -381,15 +407,19 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         #
         # TODO: This will need to be a sparse matrix product
         #
-        dfdx = jfx + jfy.dot(dydx)
+        #dfdx = jfx + jfy.dot(dydx)
+        term1 = jfx
+        term2 = structure_preserving_product(jfy, dydx)
+        adder = CondensedSparseSummation((term1, term2))
+        dfdx = adder.sum((term1, term2))
 
         #
         # Ideally, this matrix is already sparse
         #
-        full_sparse = _dense_to_full_sparse(dfdx)
+        #full_sparse = _dense_to_full_sparse(dfdx)
 
         self._timer.stop("jacobian")
-        return full_sparse
+        return dfdx
 
     def evaluate_jacobian_external_variables(self):
         nlp = self._nlp
@@ -406,7 +436,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         #
         #dydx = -1 * sps.linalg.splu(jgy_csc).solve(jgx.toarray())
         dydx = -structure_preserving_solve(jgy_csc, jgx)
-        return dydx.toarray()
+        #return dydx.toarray()
+        return dydx
 
     def evaluate_hessian_external_variables(self):
         nlp = self._nlp
@@ -417,6 +448,8 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         jgy = nlp.extract_submatrix_jacobian(y, g)
         jgy_csc = jgy.tocsc()
         jgy_fact = sps.linalg.splu(jgy_csc)
+        # TODO: If this method is going to stick around, it should be updated
+        # to use sparse derivatives
         dydx = -1 * jgy_fact.solve(jgx.toarray())
 
         ny = len(y)
@@ -475,6 +508,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         nf = len(f)
         nx = len(x)
 
+        # TODO: These should be updated to use sparse matrices
         hfxx = np.array(
             [get_hessian_of_constraint(con, x, nlp=nlp).toarray() for con in f]
         )
@@ -522,8 +556,9 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         # These terms can be used to calculate the corresponding
         # Hessian-of-Lagrangian term in the full space.
         hess_lag = self.calculate_reduced_hessian_lagrangian(hlxx, hlxy, hlyy)
-        sparse = _dense_to_full_sparse(hess_lag)
-        lower_triangle = sps.tril(sparse)
+        #sparse = _dense_to_full_sparse(hess_lag)
+        #lower_triangle = sps.tril(sparse)
+        lower_triangle = sps.tril(hess_lag)
         self._timer.stop("hessian")
         return lower_triangle
 
