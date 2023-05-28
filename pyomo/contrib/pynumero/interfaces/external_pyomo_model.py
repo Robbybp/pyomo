@@ -213,6 +213,9 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
             input_vars + external_vars
         )
 
+        self._cached_dydx = None
+        self._cached_dydx_valid = False
+
         self._timer.stop("__init__")
 
     def n_inputs(self):
@@ -247,6 +250,14 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         values = np.concatenate((input_values, outputs))
         primals[self._input_output_coords] = values
         self._nlp.set_primals(primals)
+
+        #
+        # Invalidate caches
+        #
+        # TODO: Check if inputs have changed and only invalidate
+        # if so. (This should go at the top of the method so we only
+        # solve the system if the values have changed)
+        self._cached_dydx_valid = False
 
         self._timer.stop("set_inputs")
 
@@ -287,6 +298,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         # We would then need to call nlp.set_duals twice. Once with the
         # residual multipliers and once with the full multipliers.
         # I like the current approach better for now.
+        self._timer.start("calculate-duals")
         nlp = self._nlp
         y = self.external_vars
         f = self.residual_cons
@@ -300,12 +312,15 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         # TODO: This solve needs to return a sparse matrix
         #
         #dfdg = -sps.linalg.splu(jgy_t.tocsc()).solve(jfy_t.toarray())
+        self._timer.start("linear-solve")
         dfdg = -structure_preserving_solve(jgy_t.tocsc(), jfy_t)
+        self._timer.stop("linear-solve")
 
         resid_multipliers = np.array(resid_multipliers)
         # Nothing needs to change about this matrix-vector product;
         # the result is a (dense) vector no matter what
         external_multipliers = dfdg.dot(resid_multipliers)
+        self._timer.stop("calculate-duals")
         return external_multipliers
 
     def get_full_space_lagrangian_hessians(self):
@@ -333,6 +348,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         terms.
 
         """
+        self._timer.start("reduced-hessian")
         # Converting to dense is faster for the distillation
         # example. Does this make sense?
         #
@@ -367,6 +383,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         adder = CondensedSparseSummation((term1, term2, term3))
         hess_lag = adder.sum((term1, term2, term3))
 
+        self._timer.stop("reduced-hessian")
         return hess_lag
 
     def evaluate_equality_constraints(self):
@@ -379,18 +396,18 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         x = self.input_vars
         y = self.external_vars
         f = self.residual_cons
-        g = self.external_cons
+        #g = self.external_cons
         jfx = nlp.extract_submatrix_jacobian(x, f)
         jfy = nlp.extract_submatrix_jacobian(y, f)
-        jgx = nlp.extract_submatrix_jacobian(x, g)
-        jgy = nlp.extract_submatrix_jacobian(y, g)
+        #jgx = nlp.extract_submatrix_jacobian(x, g)
+        #jgy = nlp.extract_submatrix_jacobian(y, g)
 
         #
         # NOTE: This is unused
         #
-        nf = len(f)
-        nx = len(x)
-        n_entries = nf * nx
+        #nf = len(f)
+        #nx = len(x)
+        #n_entries = nf * nx
 
         # TODO: Does it make sense to cast dydx to a sparse matrix?
         # My intuition is that it does only if jgy is "decomposable"
@@ -400,7 +417,13 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         # TODO: this will have to result in a sparse matrix
         #
         #dydx = -1 * sps.linalg.splu(jgy.tocsc()).solve(jgx.toarray())
-        dydx = -structure_preserving_solve(jgy.tocsc(), jgx)
+
+        #self._timer.start("linear-solve")
+        #dydx = -structure_preserving_solve(jgy.tocsc(), jgx)
+        #self._timer.stop("linear-solve")
+
+        dydx = self.evaluate_jacobian_external_variables()
+
         # NOTE: PyNumero block matrices require this to be a sparse matrix
         # that contains coordinates for every entry that could possibly
         # be nonzero. Here, this is all of the entries.
@@ -422,6 +445,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         return dfdx
 
     def evaluate_jacobian_external_variables(self):
+        self._timer.start("jacobian-external")
         nlp = self._nlp
         x = self.input_vars
         y = self.external_vars
@@ -435,103 +459,120 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         # This solve will have to yield a sparse matrix
         #
         #dydx = -1 * sps.linalg.splu(jgy_csc).solve(jgx.toarray())
-        dydx = -structure_preserving_solve(jgy_csc, jgx)
+
+        self._timer.start("linear-solve")
+        if self._cached_dydx_valid:
+            dydx = self._cached_dydx
+        else:
+            dydx = -structure_preserving_solve(jgy_csc, jgx)
+            self._cached_dydx = dydx
+            # This remains valid until we update primals
+            self._cached_dydx_valid = True
+        self._timer.stop("linear-solve")
+
         #return dydx.toarray()
+        self._timer.stop("jacobian-external")
         return dydx
 
-    def evaluate_hessian_external_variables(self):
-        nlp = self._nlp
-        x = self.input_vars
-        y = self.external_vars
-        g = self.external_cons
-        jgx = nlp.extract_submatrix_jacobian(x, g)
-        jgy = nlp.extract_submatrix_jacobian(y, g)
-        jgy_csc = jgy.tocsc()
-        jgy_fact = sps.linalg.splu(jgy_csc)
-        # TODO: If this method is going to stick around, it should be updated
-        # to use sparse derivatives
-        dydx = -1 * jgy_fact.solve(jgx.toarray())
+    #
+    # TODO: These methods need to be updated.
+    # Potentially, they should be deprecated and removed, as they use
+    # tensor aritmetic for individual Hessian calculations, which is
+    # very slow.
+    #
+    #def evaluate_hessian_external_variables(self):
+    #    nlp = self._nlp
+    #    x = self.input_vars
+    #    y = self.external_vars
+    #    g = self.external_cons
+    #    jgx = nlp.extract_submatrix_jacobian(x, g)
+    #    jgy = nlp.extract_submatrix_jacobian(y, g)
+    #    jgy_csc = jgy.tocsc()
+    #    jgy_fact = sps.linalg.splu(jgy_csc)
+    #    # TODO: If this method is going to stick around, it should be updated
+    #    # to use sparse derivatives
+    #    dydx = -1 * jgy_fact.solve(jgx.toarray())
 
-        ny = len(y)
-        nx = len(x)
+    #    ny = len(y)
+    #    nx = len(x)
 
-        hgxx = np.array(
-            [get_hessian_of_constraint(con, x, nlp=nlp).toarray() for con in g]
-        )
-        hgxy = np.array(
-            [get_hessian_of_constraint(con, x, y, nlp=nlp).toarray() for con in g]
-        )
-        hgyy = np.array(
-            [get_hessian_of_constraint(con, y, nlp=nlp).toarray() for con in g]
-        )
+    #    hgxx = np.array(
+    #        [get_hessian_of_constraint(con, x, nlp=nlp).toarray() for con in g]
+    #    )
+    #    hgxy = np.array(
+    #        [get_hessian_of_constraint(con, x, y, nlp=nlp).toarray() for con in g]
+    #    )
+    #    hgyy = np.array(
+    #        [get_hessian_of_constraint(con, y, nlp=nlp).toarray() for con in g]
+    #    )
 
-        # This term is sparse, but we do not exploit it.
-        term1 = hgxx
+    #    # This term is sparse, but we do not exploit it.
+    #    term1 = hgxx
 
-        # This is what we want.
-        # prod[i,j,k] = sum(hgxy[i,:,j] * dydx[:,k])
-        prod = hgxy.dot(dydx)
-        # Swap the second and third axes of the tensor
-        term2 = prod + prod.transpose((0, 2, 1))
-        # The term2 tensor could have some sparsity worth exploiting.
+    #    # This is what we want.
+    #    # prod[i,j,k] = sum(hgxy[i,:,j] * dydx[:,k])
+    #    prod = hgxy.dot(dydx)
+    #    # Swap the second and third axes of the tensor
+    #    term2 = prod + prod.transpose((0, 2, 1))
+    #    # The term2 tensor could have some sparsity worth exploiting.
 
-        # matrix.dot(tensor) is not what we want, so we reverse the order of the
-        # product. Exploit symmetry of hgyy to only perform one transpose.
-        term3 = hgyy.dot(dydx).transpose((0, 2, 1)).dot(dydx)
+    #    # matrix.dot(tensor) is not what we want, so we reverse the order of the
+    #    # product. Exploit symmetry of hgyy to only perform one transpose.
+    #    term3 = hgyy.dot(dydx).transpose((0, 2, 1)).dot(dydx)
 
-        rhs = term1 + term2 + term3
+    #    rhs = term1 + term2 + term3
 
-        rhs.shape = (ny, nx * nx)
-        sol = jgy_fact.solve(rhs)
-        sol.shape = (ny, nx, nx)
-        d2ydx2 = -sol
+    #    rhs.shape = (ny, nx * nx)
+    #    sol = jgy_fact.solve(rhs)
+    #    sol.shape = (ny, nx, nx)
+    #    d2ydx2 = -sol
 
-        return d2ydx2
+    #    return d2ydx2
 
-    def evaluate_hessians_of_residuals(self):
-        """
-        This method computes the Hessian matrix of each equality
-        constraint individually, rather than the sum of Hessians
-        times multipliers.
-        """
-        nlp = self._nlp
-        x = self.input_vars
-        y = self.external_vars
-        f = self.residual_cons
-        g = self.external_cons
-        jfx = nlp.extract_submatrix_jacobian(x, f)
-        jfy = nlp.extract_submatrix_jacobian(y, f)
+    #def evaluate_hessians_of_residuals(self):
+    #    """
+    #    This method computes the Hessian matrix of each equality
+    #    constraint individually, rather than the sum of Hessians
+    #    times multipliers.
+    #    """
+    #    nlp = self._nlp
+    #    x = self.input_vars
+    #    y = self.external_vars
+    #    f = self.residual_cons
+    #    g = self.external_cons
+    #    jfx = nlp.extract_submatrix_jacobian(x, f)
+    #    jfy = nlp.extract_submatrix_jacobian(y, f)
 
-        dydx = self.evaluate_jacobian_external_variables()
+    #    dydx = self.evaluate_jacobian_external_variables()
 
-        ny = len(y)
-        nf = len(f)
-        nx = len(x)
+    #    ny = len(y)
+    #    nf = len(f)
+    #    nx = len(x)
 
-        # TODO: These should be updated to use sparse matrices
-        hfxx = np.array(
-            [get_hessian_of_constraint(con, x, nlp=nlp).toarray() for con in f]
-        )
-        hfxy = np.array(
-            [get_hessian_of_constraint(con, x, y, nlp=nlp).toarray() for con in f]
-        )
-        hfyy = np.array(
-            [get_hessian_of_constraint(con, y, nlp=nlp).toarray() for con in f]
-        )
+    #    # TODO: These should be updated to use sparse matrices
+    #    hfxx = np.array(
+    #        [get_hessian_of_constraint(con, x, nlp=nlp).toarray() for con in f]
+    #    )
+    #    hfxy = np.array(
+    #        [get_hessian_of_constraint(con, x, y, nlp=nlp).toarray() for con in f]
+    #    )
+    #    hfyy = np.array(
+    #        [get_hessian_of_constraint(con, y, nlp=nlp).toarray() for con in f]
+    #    )
 
-        d2ydx2 = self.evaluate_hessian_external_variables()
+    #    d2ydx2 = self.evaluate_hessian_external_variables()
 
-        term1 = hfxx
-        prod = hfxy.dot(dydx)
-        term2 = prod + prod.transpose((0, 2, 1))
-        term3 = hfyy.dot(dydx).transpose((0, 2, 1)).dot(dydx)
+    #    term1 = hfxx
+    #    prod = hfxy.dot(dydx)
+    #    term2 = prod + prod.transpose((0, 2, 1))
+    #    term3 = hfyy.dot(dydx).transpose((0, 2, 1)).dot(dydx)
 
-        d2ydx2.shape = (ny, nx * nx)
-        term4 = jfy.dot(d2ydx2)
-        term4.shape = (nf, nx, nx)
+    #    d2ydx2.shape = (ny, nx * nx)
+    #    term4 = jfy.dot(d2ydx2)
+    #    term4.shape = (nf, nx, nx)
 
-        d2fdx2 = term1 + term2 + term3 + term4
-        return d2fdx2
+    #    d2fdx2 = term1 + term2 + term3 + term4
+    #    return d2fdx2
 
     def evaluate_hessian_equality_constraints(self):
         """
