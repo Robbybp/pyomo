@@ -20,6 +20,7 @@ from pyomo.contrib.pynumero.interfaces.pyomo_nlp import PyomoNLP
 from pyomo.contrib.pynumero.interfaces.external_grey_box import ExternalGreyBoxModel
 from pyomo.contrib.pynumero.interfaces.utils import (
     structure_preserving_solve,
+    _structure_preserving_solve,
     CondensedSparseSummation,
     structure_preserving_product,
 )
@@ -313,7 +314,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         #
         #dfdg = -sps.linalg.splu(jgy_t.tocsc()).solve(jfy_t.toarray())
         self._timer.start("linear-solve")
-        dfdg = -structure_preserving_solve(jgy_t.tocsc(), jfy_t)
+        dfdg = -_structure_preserving_solve(jgy_t.tocsc(), jfy_t, timer=self._timer)
         self._timer.stop("linear-solve")
 
         resid_multipliers = np.array(resid_multipliers)
@@ -464,7 +465,7 @@ class ExternalPyomoModel(ExternalGreyBoxModel):
         if self._cached_dydx_valid:
             dydx = self._cached_dydx
         else:
-            dydx = -structure_preserving_solve(jgy_csc, jgx)
+            dydx = -_structure_preserving_solve(jgy_csc, jgx, timer=self._timer)
             self._cached_dydx = dydx
             # This remains valid until we update primals
             self._cached_dydx_valid = True
