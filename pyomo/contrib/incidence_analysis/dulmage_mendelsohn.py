@@ -14,6 +14,10 @@ from pyomo.common.dependencies import networkx as nx
 from pyomo.contrib.incidence_analysis.common.dulmage_mendelsohn import (
     dulmage_mendelsohn as dm_nx,
 )
+from networkx.algorithms.bipartite.matching import (
+    dulmage_mendelsohn_decomposition,
+    maximum_matching,
+)
 
 """
 This module imports the general Dulmage-Mendelsohn-on-a-graph function
@@ -102,11 +106,28 @@ def dulmage_mendelsohn(matrix_or_graph, top_nodes=None, matching=None):
                 "top_nodes must be specified if a graph is provided,"
                 "\notherwise the result is ambiguous."
             )
-        partition = dm_nx(graph, top_nodes=top_nodes, matching=matching)
+        top_partition, bot_partition = dulmage_mendelsohn_decomposition(
+            graph, top_nodes
+        )
+        matching = maximum_matching(graph, top_nodes=top_nodes)
+        top_unmatched = [node for node in top_partition[0] if node not in matching]
+        bot_unmatched = [node for node in bot_partition[2] if node not in matching]
+        top_reachable = [node for node in top_partition[0] if node in matching]
+        bot_reachable = [node for node in bot_partition[2] if node in matching]
+
+        partition = (
+            RowPartition(
+                top_unmatched, top_reachable, top_partition[2], top_partition[1]
+            ),
+            ColPartition(
+                bot_unmatched, bot_reachable, bot_partition[0], bot_partition[1]
+            ),
+        )
+        #partition = dm_nx(graph, top_nodes=top_nodes, matching=matching)
         # RowPartition and ColPartition do not make sense for a general graph.
         # However, here we assume that this graph comes from a Pyomo model,
         # and that "top nodes" are constraints.
-        partition = (RowPartition(*partition[0]), ColPartition(*partition[1]))
+        #partition = (RowPartition(*partition[0]), ColPartition(*partition[1]))
     else:
         # Assume matrix_or_graph is a scipy coo_matrix
         matrix = matrix_or_graph
@@ -127,16 +148,40 @@ def dulmage_mendelsohn(matrix_or_graph, top_nodes=None, matching=None):
 
         # Matrix rows have bipartite=0, columns have bipartite=1
         bg = from_biadjacency_matrix(matrix)
-        row_partition, col_partition = dm_nx(
-            bg, top_nodes=list(range(M)), matching=matching
+        top_nodes = list(range(M))
+        matching = maximum_matching(bg, top_nodes=top_nodes)
+        row_partition, col_partition = dulmage_mendelsohn_decomposition(
+            bg, top_nodes
         )
+
+        row_unmatched = [node for node in row_partition[0] if node not in matching]
+        col_unmatched = [node for node in col_partition[2] if node not in matching]
+        row_reachable = [node for node in row_partition[0] if node in matching]
+        col_reachable = [node for node in col_partition[2] if node in matching]
+
+        # Apply offset to get coordinates back in column space of user's matrix
+        col_partition = tuple([n - M for n in subset] for subset in col_partition)
+        col_unmatched = [n - M for n in col_unmatched]
+        col_reachable = [n - M for n in col_reachable]
 
         partition = (
-            row_partition,
-            tuple([n - M for n in subset] for subset in col_partition)
-            # Column nodes have values in [M, M+N-1]. Apply the offset
-            # to get values corresponding to indices in user's matrix.
+            RowPartition(
+                row_unmatched, row_reachable, row_partition[2], row_partition[1]
+            ),
+            ColPartition(
+                col_unmatched, col_reachable, col_partition[0], col_partition[1]
+            ),
         )
+        #row_partition, col_partition = dm_nx(
+        #    bg, top_nodes=list(range(M)), matching=matching
+        #)
 
-    partition = (RowPartition(*partition[0]), ColPartition(*partition[1]))
+        #partition = (
+        #    row_partition,
+        #    tuple([n - M for n in subset] for subset in col_partition)
+        #    # Column nodes have values in [M, M+N-1]. Apply the offset
+        #    # to get values corresponding to indices in user's matrix.
+        #)
+
+        #partition = (RowPartition(*partition[0]), ColPartition(*partition[1]))
     return partition
