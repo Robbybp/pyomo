@@ -106,23 +106,54 @@ def dulmage_mendelsohn(matrix_or_graph, top_nodes=None, matching=None):
                 "top_nodes must be specified if a graph is provided,"
                 "\notherwise the result is ambiguous."
             )
-        top_partition, bot_partition = dulmage_mendelsohn_decomposition(
-            graph, top_nodes
-        )
         matching = maximum_matching(graph, top_nodes=top_nodes)
-        top_unmatched = [node for node in top_partition[0] if node not in matching]
-        bot_unmatched = [node for node in bot_partition[2] if node not in matching]
-        top_reachable = [node for node in top_partition[0] if node in matching]
-        bot_reachable = [node for node in bot_partition[2] if node in matching]
+        reachable_top, reachable_bot, unreachable = dulmage_mendelsohn_decomposition(
+            graph, top_nodes, matching=matching
+        )
+
+        top_unmatched = [node for node in reachable_top if node not in matching]
+        bot_unmatched = [node for node in reachable_bot if node not in matching]
+
+        top_node_set = set(top_nodes)
+
+        #matched_reachable_top = (set(reachable_top) & matching.keys() & top_node_set)
+        #matched_reachable_bot = (set(reachable_bot) & matching.keys()).difference(top_node_set)
+
+        matched_top_set = (matching.keys() & top_node_set)
+        matched_bot_set = set(matching.keys()).difference(top_node_set)
+
+        top_reachable = [node for node in reachable_top if node in matched_top_set]
+        bot_reachable = [node for node in reachable_bot if node in matched_bot_set]
+
+        # These are the nodes in each set that are alternating-reachable from
+        # unmatched nodes in the same set
+        #top_reachable = [node for node in graph if node in matched_reachable_top]
+        #bot_reachable = [node for node in graph if node in matched_reachable_bot]
+
+        # These are the nodes that are alternating-reachable from unmatched
+        # nodes in the opposite set
+        bot_reachable_top = [matching[node] for node in top_reachable]
+        top_reachable_bot = [matching[node] for node in bot_reachable]
+
+        top_unreachable = [node for node in unreachable if node in top_node_set]
+        bot_unreachable = [node for node in unreachable if node not in top_node_set]
 
         partition = (
             RowPartition(
-                top_unmatched, top_reachable, top_partition[2], top_partition[1]
+                top_unmatched, top_reachable, top_reachable_bot, top_unreachable
             ),
             ColPartition(
-                bot_unmatched, bot_reachable, bot_partition[0], bot_partition[1]
+                bot_unmatched, bot_reachable, bot_reachable_top, bot_unreachable
             ),
         )
+        #partition = (
+        #    RowPartition(
+        #        top_unmatched, top_reachable, top_partition[2], top_partition[1]
+        #    ),
+        #    ColPartition(
+        #        bot_unmatched, bot_reachable, bot_partition[0], bot_partition[1]
+        #    ),
+        #)
         #partition = dm_nx(graph, top_nodes=top_nodes, matching=matching)
         # RowPartition and ColPartition do not make sense for a general graph.
         # However, here we assume that this graph comes from a Pyomo model,
@@ -150,26 +181,54 @@ def dulmage_mendelsohn(matrix_or_graph, top_nodes=None, matching=None):
         bg = from_biadjacency_matrix(matrix)
         top_nodes = list(range(M))
         matching = maximum_matching(bg, top_nodes=top_nodes)
-        row_partition, col_partition = dulmage_mendelsohn_decomposition(
-            bg, top_nodes
+        partition = dulmage_mendelsohn_decomposition(
+            bg, top_nodes, matching=matching
         )
+        reachable_top, reachable_bot, unreachable = partition
 
-        row_unmatched = [node for node in row_partition[0] if node not in matching]
-        col_unmatched = [node for node in col_partition[2] if node not in matching]
-        row_reachable = [node for node in row_partition[0] if node in matching]
-        col_reachable = [node for node in col_partition[2] if node in matching]
+        top_unmatched = [node for node in reachable_top if node not in matching]
+        bot_unmatched = [node for node in reachable_bot if node not in matching]
+
+        top_node_set = set(top_nodes)
+
+        matched_reachable_top = (set(reachable_top) & matching.keys() & top_node_set)
+        matched_reachable_bot = (set(reachable_bot) & matching.keys()).difference(top_node_set)
+
+        # These are the nodes in each set that are alternating-reachable from
+        # unmatched nodes in the same set
+        top_reachable = [node for node in bg if node in matched_reachable_top]
+        bot_reachable = [node for node in bg if node in matched_reachable_bot]
+
+        # These are the nodes that are alternating-reachable from unmatched
+        # nodes in the opposite set
+        bot_reachable_top = [matching[node] for node in top_reachable]
+        top_reachable_bot = [matching[node] for node in bot_reachable]
+
+        top_unreachable_set = (set(unreachable) & top_node_set)
+        bot_unreachable_set = set(unreachable).difference(top_node_set)
+        top_unreachable = [node for node in bg if node in top_unreachable_set]
+        bot_unreachable = [node for node in bg if node in bot_unreachable_set]
+
+        #row_unmatched = [node for node in row_partition[0] if node not in matching]
+        #col_unmatched = [node for node in col_partition[2] if node not in matching]
+        #row_reachable = [node for node in row_partition[0] if node in matching]
+        #col_reachable = [node for node in col_partition[2] if node in matching]
 
         # Apply offset to get coordinates back in column space of user's matrix
-        col_partition = tuple([n - M for n in subset] for subset in col_partition)
-        col_unmatched = [n - M for n in col_unmatched]
-        col_reachable = [n - M for n in col_reachable]
+        #col_partition = tuple([n - M for n in subset] for subset in col_partition)
+        #col_unmatched = [n - M for n in col_unmatched]
+        #col_reachable = [n - M for n in col_reachable]
+        bot_reachable = [n - M for n in bot_reachable]
+        bot_unmatched = [n - M for n in bot_unmatched]
+        bot_reachable_top = [n - M for n in bot_reachable_top]
+        bot_unreachable = [n - M for n in bot_unreachable]
 
         partition = (
             RowPartition(
-                row_unmatched, row_reachable, row_partition[2], row_partition[1]
+                top_unmatched, top_reachable, top_reachable_bot, top_unreachable
             ),
             ColPartition(
-                col_unmatched, col_reachable, col_partition[0], col_partition[1]
+                bot_unmatched, bot_reachable, bot_reachable_top, bot_unreachable
             ),
         )
         #row_partition, col_partition = dm_nx(
