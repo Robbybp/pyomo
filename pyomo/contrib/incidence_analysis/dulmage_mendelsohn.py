@@ -82,9 +82,11 @@ def dulmage_mendelsohn(matrix_or_graph, top_nodes=None, matching=None):
         List of nodes in one bipartite set of the graph. Must be provided
         if a graph is provided.
     matching: dict
-        A maximum cardinality matching in the form of a dict mapping
-        from "top nodes" to their matched nodes *and* from the matched
-        nodes back to the "top nodes".
+        A maximum cardinality matching. If a graph is provided, this is
+        in the form of a dict mapping from "top nodes" to their matched nodes
+        *and* from the matched nodes back to the "top nodes".
+        If a matrix is provided, this is a dict mapping from row indices to
+        column indices.
 
     Returns
     -------
@@ -106,37 +108,32 @@ def dulmage_mendelsohn(matrix_or_graph, top_nodes=None, matching=None):
                 "top_nodes must be specified if a graph is provided,"
                 "\notherwise the result is ambiguous."
             )
-        matching = maximum_matching(graph, top_nodes=top_nodes)
+        if matching is None:
+            matching = maximum_matching(graph, top_nodes=top_nodes)
         reachable_top, reachable_bot, unreachable = dulmage_mendelsohn_decomposition(
             graph, top_nodes, matching=matching
         )
-
-        top_unmatched = [node for node in reachable_top if node not in matching]
-        bot_unmatched = [node for node in reachable_bot if node not in matching]
-
         top_node_set = set(top_nodes)
+        bot_nodes = [node for node in graph if node not in top_node_set]
 
-        #matched_reachable_top = (set(reachable_top) & matching.keys() & top_node_set)
-        #matched_reachable_bot = (set(reachable_bot) & matching.keys()).difference(top_node_set)
+        top_unmatched = [node for node in top_nodes if node not in matching]
+        bot_unmatched = [node for node in bot_nodes if node not in matching]
 
-        matched_top_set = (matching.keys() & top_node_set)
-        matched_bot_set = set(matching.keys()).difference(top_node_set)
-
-        top_reachable = [node for node in reachable_top if node in matched_top_set]
-        bot_reachable = [node for node in reachable_bot if node in matched_bot_set]
-
-        # These are the nodes in each set that are alternating-reachable from
-        # unmatched nodes in the same set
-        #top_reachable = [node for node in graph if node in matched_reachable_top]
-        #bot_reachable = [node for node in graph if node in matched_reachable_bot]
+        # These are nodes reachable from unmatched-in-respective-set that
+        # are in the matching.
+        reachable_top_matched = reachable_top & matching.keys()
+        reachable_bot_matched = reachable_bot & matching.keys()
+        # These are e.g. top-reachable-from-top-unmatched
+        top_reachable = [node for node in top_nodes if node in reachable_top_matched]
+        bot_reachable = [node for node in bot_nodes if node in reachable_bot_matched]
 
         # These are the nodes that are alternating-reachable from unmatched
         # nodes in the opposite set
         bot_reachable_top = [matching[node] for node in top_reachable]
         top_reachable_bot = [matching[node] for node in bot_reachable]
 
-        top_unreachable = [node for node in unreachable if node in top_node_set]
-        bot_unreachable = [node for node in unreachable if node not in top_node_set]
+        top_unreachable = [node for node in top_nodes if node in unreachable]
+        bot_unreachable = [node for node in bot_nodes if node in unreachable]
 
         partition = (
             RowPartition(
@@ -146,19 +143,6 @@ def dulmage_mendelsohn(matrix_or_graph, top_nodes=None, matching=None):
                 bot_unmatched, bot_reachable, bot_reachable_top, bot_unreachable
             ),
         )
-        #partition = (
-        #    RowPartition(
-        #        top_unmatched, top_reachable, top_partition[2], top_partition[1]
-        #    ),
-        #    ColPartition(
-        #        bot_unmatched, bot_reachable, bot_partition[0], bot_partition[1]
-        #    ),
-        #)
-        #partition = dm_nx(graph, top_nodes=top_nodes, matching=matching)
-        # RowPartition and ColPartition do not make sense for a general graph.
-        # However, here we assume that this graph comes from a Pyomo model,
-        # and that "top nodes" are constraints.
-        #partition = (RowPartition(*partition[0]), ColPartition(*partition[1]))
     else:
         # Assume matrix_or_graph is a scipy coo_matrix
         matrix = matrix_or_graph
