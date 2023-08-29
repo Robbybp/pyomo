@@ -14,6 +14,7 @@ import enum
 from pyomo.core.expr.visitor import identify_variables
 from pyomo.core.expr.numvalue import value as pyo_value
 from pyomo.repn import generate_standard_repn
+from pyomo.repn.linear import LinearRepnVisitor
 from pyomo.common.backports import nullcontext
 from pyomo.util.subsystems import TemporarySubsystemManager
 from pyomo.contrib.incidence_analysis.config import IncidenceMethod, IncidenceConfig
@@ -73,6 +74,54 @@ def _get_incident_via_standard_repn(expr, include_fixed, linear_only):
         return unique_variables
 
 
+def _get_incidence_via_linear_repn(expr, include_fixed, linear_only):
+    if include_fixed:
+        to_unfix = [
+            var for var in identify_variables(expr, include_fixed=True) if var.fixed
+        ]
+        context = TemporarySubsystemManager(to_unfix=to_unfix)
+    else:
+        context = nullcontext()
+
+    with context:
+        repn = generate_standard_repn(expr, compute_values=False, quadratic=False)
+
+    subexpression_cache = {}
+    var_map = {}
+    var_order = {}
+    visitor = LinearRepnVisitor(subexpression_cache, var_map, var_order)
+    repn = visitor.walk_expression(expr)
+
+    linear_vars = []
+    for vid, coef in repn.linear.items():
+        var = var_map[vid]
+        try:
+            value = pyo_value(coef)
+        except ValueError as err:
+            # Catch error evaluating expression with uninitialized variables
+            # TODO: Suppress logged error?
+            if "No value for uninitialized NumericValue" not in str(err):
+                raise err
+            value = None
+        if value != 0:
+            linear_vars.append(var)
+
+    nonlinear_vars = list(identify_variables(repn.nonlinear))
+    nonlinear_var_id_set = set(id(var) for var in nonlinear_vars)
+
+    if linear_only:
+        nl_var_id_set = set(id(var) for var in nonlinear_vars)
+        return [var for var in linear_vars if id(var) not in nl_var_id_set]
+    else:
+        var_set = set(id(var) for var in linear_vars)
+        variables = linear_vars
+        for var in identify_variables(repn.nonlinear):
+            if id(var) not in var_set:
+                var_set.add(id(var))
+                variables.append(var)
+        return variables
+
+
 def get_incident_variables(expr, **kwds):
     """Get variables that participate in an expression
 
@@ -129,3 +178,12 @@ def get_incident_variables(expr, **kwds):
             f" variables. Valid options are {IncidenceMethod.identify_variables}"
             f" and {IncidenceMethod.standard_repn}."
         )
+
+
+if __name__ == "__main__":
+    import pyomo.environ as pyo
+    m = pyo.ConcreteModel()
+    m.x = pyo.Var([1,2,3])
+    expr = 1 + m.x[1] * m.x[3] + 3*m.x[2] + m.x[3]**(1/2)*m.x[1] + m.x[1]
+    variables = _get_incidence_via_linear_repn(expr, False, True)
+    import pdb; pdb.set_trace()
