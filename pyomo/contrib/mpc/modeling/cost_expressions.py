@@ -34,7 +34,7 @@ from pyomo.contrib.mpc.data.convert import interval_to_series, _process_to_dynam
 
 
 def get_penalty_from_constant_target(
-    variables, time, setpoint_data, weight_data=None, variable_set=None
+    variables, time, setpoint_data, weight_data=None, variable_set=None, context=None
 ):
     """
     This function returns a tracking cost IndexedExpression for the given
@@ -66,9 +66,14 @@ def get_penalty_from_constant_target(
 
     """
     if weight_data is None:
-        weight_data = ScalarData(ComponentMap((var, 1.0) for var in variables))
+        # Since we are going to construct CUIDs from these variables, we need
+        # to make sure we use the right block as context
+        weight_data = ScalarData(
+            ComponentMap((var, 1.0) for var in variables),
+            context=context,
+        )
     if not isinstance(weight_data, ScalarData):
-        weight_data = ScalarData(weight_data)
+        weight_data = ScalarData(weight_data, context=weight_context)
     if not isinstance(setpoint_data, ScalarData):
         setpoint_data = ScalarData(setpoint_data)
     if variable_set is None:
@@ -76,12 +81,12 @@ def get_penalty_from_constant_target(
 
     # Make sure data have keys for each var
     for var in variables:
-        if not setpoint_data.contains_key(var):
+        if not setpoint_data.contains_key(var, context=context):
             raise KeyError(
                 "Setpoint data dictionary does not contain a"
                 " key for variable %s" % var.name
             )
-        if not weight_data.contains_key(var):
+        if not weight_data.contains_key(var, context=context):
             raise KeyError(
                 "Tracking weight dictionary does not contain a"
                 " key for variable %s" % var.name
@@ -89,7 +94,7 @@ def get_penalty_from_constant_target(
 
     # Set up data structures so we don't have to re-process keys for each
     # time index in the rule.
-    cuids = [get_indexed_cuid(var) for var in variables]
+    cuids = [get_indexed_cuid(var, context=context) for var in variables]
     setpoint_data = setpoint_data.get_data()
     weight_data = weight_data.get_data()
 
@@ -110,6 +115,7 @@ def get_penalty_from_piecewise_constant_target(
     variable_set=None,
     tolerance=0.0,
     prefer_left=True,
+    context=None,
 ):
     """Returns an IndexedExpression penalizing deviation between
     the specified variables and piecewise constant target data.
@@ -156,6 +162,7 @@ def get_penalty_from_piecewise_constant_target(
         setpoint_time_series,
         weight_data=weight_data,
         variable_set=variable_set,
+        context=context,
     )
     return var_set, tracking_cost
 
@@ -167,14 +174,18 @@ def get_quadratic_penalty_at_time(var, t, setpoint, weight=None):
 
 
 def _get_penalty_expressions_from_time_varying_target(
-    variables, time, setpoint_data, weight_data=None
+    variables, time, setpoint_data, weight_data=None, context=None
 ):
     if weight_data is None:
-        weight_data = ScalarData(ComponentMap((var, 1.0) for var in variables))
+        weight_data = ScalarData(
+            ComponentMap((var, 1.0) for var in variables),
+            time_set=time,
+            context=context,
+        )
     if not isinstance(weight_data, ScalarData):
-        weight_data = ScalarData(weight_data)
+        weight_data = ScalarData(weight_data, time_set=time, context=context)
     if not isinstance(setpoint_data, TimeSeriesData):
-        setpoint_data = TimeSeriesData(*setpoint_data)
+        setpoint_data = TimeSeriesData(*setpoint_data, time_set=time, context=context)
 
     # Validate incoming data
     if list(time) != setpoint_data.get_time_points():
@@ -183,9 +194,9 @@ def _get_penalty_expressions_from_time_varying_target(
             " in the setpoint data structure"
         )
     for var in variables:
-        if not setpoint_data.contains_key(var):
+        if not setpoint_data.contains_key(var, context=context):
             raise KeyError("Setpoint data does not contain a key for variable %s" % var)
-        if not weight_data.contains_key(var):
+        if not weight_data.contains_key(var, context=context):
             raise KeyError(
                 "Tracking weight does not contain a key for variable %s" % var
             )
@@ -193,9 +204,9 @@ def _get_penalty_expressions_from_time_varying_target(
     # Get lists of weights and setpoints so we don't have to process
     # the variables (to get CUIDs) and hash the CUIDs for every
     # time index.
-    cuids = [get_indexed_cuid(var, sets=(time,)) for var in variables]
-    weights = [weight_data.get_data_from_key(var) for var in variables]
-    setpoints = [setpoint_data.get_data_from_key(var) for var in variables]
+    #cuids = [get_indexed_cuid(var, sets=(time,), context=context) for var in variables]
+    weights = [weight_data.get_data_from_key(var, context=context) for var in variables]
+    setpoints = [setpoint_data.get_data_from_key(var, context=context) for var in variables]
     tracking_costs = [
         {
             t: get_quadratic_penalty_at_time(var, t, setpoints[j][i], weights[j])
@@ -207,7 +218,7 @@ def _get_penalty_expressions_from_time_varying_target(
 
 
 def get_penalty_from_time_varying_target(
-    variables, time, setpoint_data, weight_data=None, variable_set=None
+    variables, time, setpoint_data, weight_data=None, variable_set=None, context=None
 ):
     """Constructs a penalty expression for the specified variables and
     specified time-varying target data.
@@ -240,7 +251,7 @@ def get_penalty_from_time_varying_target(
     # mapping each time point to the quadratic weighted tracking cost term
     # at that time point.
     tracking_costs = _get_penalty_expressions_from_time_varying_target(
-        variables, time, setpoint_data, weight_data=weight_data
+        variables, time, setpoint_data, weight_data=weight_data, context=context
     )
 
     def tracking_rule(m, i, t):
@@ -258,6 +269,7 @@ def get_penalty_from_target(
     variable_set=None,
     tolerance=None,
     prefer_left=None,
+    context=None,
 ):
     """A function to get a penalty expression for specified variables from
     a target that is constant, piecewise constant, or time-varying.
@@ -301,7 +313,7 @@ def get_penalty_from_target(
     """
     setpoint_data = _process_to_dynamic_data(setpoint_data)
     args = (variables, time, setpoint_data)
-    kwds = dict(weight_data=weight_data, variable_set=variable_set)
+    kwds = dict(weight_data=weight_data, variable_set=variable_set, context=context)
 
     def _error_if_used(tolerance, prefer_left, sp_type):
         if tolerance is not None or prefer_left is not None:

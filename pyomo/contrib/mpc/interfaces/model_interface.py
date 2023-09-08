@@ -77,6 +77,7 @@ class DynamicModelInterface(object):
 
         if context is NOTSET:
             context = model
+        self._context = context
 
         # Use buffer to reduce repeated work during name/cuid generation
         cuid_buffer = {}
@@ -340,6 +341,7 @@ class DynamicModelInterface(object):
             # Should these data structures use OrderedDicts internally
             # to enforce an order here?
             variables = [
+                # TODO: Should this use the provided context if available?
                 self.model.find_component(key) for key in target_data.get_data().keys()
             ]
         else:
@@ -357,6 +359,9 @@ class DynamicModelInterface(object):
             variable_set=variable_set,
             tolerance=tolerance,
             prefer_left=prefer_left,
+            # Provide context so we construct the correct CUID to look up
+            # weights and setpoints in the provided data structures
+            context=self._context,
         )
 
     def get_piecewise_constant_constraints(
