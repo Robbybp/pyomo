@@ -932,3 +932,56 @@ class IncidenceGraphInterface(object):
             fig.update_layout(title=dict(text=title))
         if show:
             fig.show()
+
+    def full_canonical_partition(variables=None, constraints=None):
+        """Fully decompose the incidence graph via the "fine" Dulmage-Mendelsohn
+        decomposition
+
+        The fine decomposition consists of the following steps:
+        
+        1. "Coarse" Dulmage-Mendelsohn decomposition on the bipartite graph
+
+        2. Connected component decomposition on under-constrained and
+        over-constrained subsystems
+
+        3. Strongly connected component decomposition on the well-constrained
+        subsystem.
+
+        """
+        var_dmp, con_dmp = self.dulmage_mendelsohn(
+            variables=variables, constraints=constraints
+        )
+        uc_var = var_dmp.unmatched + var_dmp.underconstrained
+        uc_con = con_dmp.underconstrained
+        oc_var = var_dmp.overconstrained
+        oc_con = con_dmp.overconstrained + con_dmp.unmatched
+        wc_var = var_dmp.square
+        wc_con = con_dmp.square
+        uc_var_cc, uc_con_cc = self.get_connected_components(
+            variables=uc_var, constraints=uc_con
+        )
+        oc_var_cc, oc_con_cc = self.get_connected_components(
+            variables=oc_var, constraints=oc_con
+        )
+        # Not obvious whether it makes sense to partition the well-constrained
+        # subsystem into connected components before block triangularizing.
+        wc_var_cc, wc_con_cc = self.get_connected_components(
+            variables=wc_var, constraints=wc_con
+        )
+        wc_blocks = [
+            self.block_triangularize(variables=var_cc, constraints=con_cc)
+            for var_cc, con_cc in zip(wc_var_cc, wc_con_cc)
+        ]
+        # Reverse order of blocks in block triangularizations to get upper
+        # triangular form (since we put coarse DM decomposition in UT form)
+        for vblock, cblock in wc_blocks:
+            vblock.reverse()
+            cblock.reverse()
+        # Concatenate the lists-of-lists of variables and constraints
+        wc_var_blocks = sum(vblocks for vblocks, _ in wc_blocks, [])
+        wc_con_blocks = sum(cblocks for _, cblocks in wc_blocks, [])
+
+        vblocks = uc_var_cc + wc_var_blocks + oc_var_cc
+        cblocks = uc_con_cc + wc_con_blocks + oc_con_cc
+
+        return vblocks, cblocks
