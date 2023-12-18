@@ -198,6 +198,7 @@ class CyIpoptSolver(object):
         if x0 is None:
             x0 = self._problem.x_init()
         xstart = x0
+
         cyipopt_solver = self._problem
 
         # check if we need scaling
