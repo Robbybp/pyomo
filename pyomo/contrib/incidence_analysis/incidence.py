@@ -113,6 +113,26 @@ def _get_incident_via_ampl_repn(expr, linear_only, visitor):
         return variables
 
 
+def _get_incident_via_linear_repn(expr, linear_only, visitor):
+    var_map = visitor.var_map
+    repn = visitor.walk_expression(expr)
+    nonlinear_vid_set = set()
+    nonlinear_vars = []
+    if repn.nonlinear is not None:
+        for var in identify_variables(repn.nonlinear):
+            v_id = id(var)
+            if v_id not in nonlinear_vid_set:
+                nonlinear_vid_set.add(v_id)
+                nonlinear_vars.append(var_map[v_id])
+    linear_only_vars = [
+        var_map[v_id] for v_id in repn.linear if v_id not in nonlinear_vid_set
+    ]
+    if linear_only:
+        return linear_only_vars
+    else:
+        return linear_only_vars + nonlinear_vars
+
+
 def get_incident_variables(expr, **kwds):
     """Get variables that participate in an expression
 
@@ -156,6 +176,7 @@ def get_incident_variables(expr, **kwds):
     include_fixed = config.include_fixed
     linear_only = config.linear_only
     amplrepnvisitor = config._ampl_repn_visitor
+    linearrepnvisitor = config._linear_repn_visitor
 
     # Check compatibility of arguments
     if linear_only and method is IncidenceMethod.identify_variables:
@@ -167,6 +188,9 @@ def get_incident_variables(expr, **kwds):
     if method is IncidenceMethod.ampl_repn and amplrepnvisitor is None:
         # Developer error, this should never happen!
         raise RuntimeError("_ampl_repn_visitor must be provided when using ampl_repn")
+    if method is IncidenceMethod.linear_repn and linearrepnvisitor is None:
+        # Developer error, this should never happen!
+        raise RuntimeError("_linear_repn_visitor must be provided when using linear_repn")
 
     # Dispatch to correct method
     if method is IncidenceMethod.identify_variables:
@@ -181,6 +205,8 @@ def get_incident_variables(expr, **kwds):
         )
     elif method is IncidenceMethod.ampl_repn:
         return _get_incident_via_ampl_repn(expr, linear_only, amplrepnvisitor)
+    elif method is IncidenceMethod.linear_repn:
+        return _get_incident_via_linear_repn(expr, linear_only, linearrepnvisitor)
     else:
         raise ValueError(
             f"Unrecognized value {method} for the method used to identify incident"

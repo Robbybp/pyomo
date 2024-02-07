@@ -14,7 +14,8 @@
 import enum
 from pyomo.common.config import ConfigDict, ConfigValue, InEnum
 from pyomo.common.modeling import NOTSET
-from pyomo.repn.plugins.nl_writer import AMPLRepnVisitor, AMPLRepn, text_nl_template
+from pyomo.repn.linear import LinearRepn, LinearRepnVisitor
+from pyomo.repn.plugins.nl_writer import AMPLRepnVisitor, text_nl_template
 from pyomo.repn.util import FileDeterminism, FileDeterminism_to_SortComponents
 
 
@@ -34,6 +35,9 @@ class IncidenceMethod(enum.Enum):
 
     ampl_repn = 3
     """Use ``pyomo.repn.plugins.nl_writer.AMPLRepnVisitor``"""
+
+    linear_repn = 4
+    """Use ``pyomo.repn.linear.LinearRepnVisitor``"""
 
 
 _include_fixed = ConfigValue(
@@ -68,7 +72,8 @@ _method = ConfigValue(
 def _amplrepnvisitor_validator(visitor):
     if not isinstance(visitor, AMPLRepnVisitor):
         raise TypeError(
-            "'visitor' config argument should be an instance of AMPLRepnVisitor"
+            "'_ampl_repn_visitor' config argument should be an instance of"
+            " AMPLRepnVisitor."
         )
     return visitor
 
@@ -76,7 +81,23 @@ def _amplrepnvisitor_validator(visitor):
 _ampl_repn_visitor = ConfigValue(
     default=None,
     domain=_amplrepnvisitor_validator,
-    description="Visitor used to generate AMPLRepn of each constraint",
+    description="Visitor used to generate AMPLRepn of each expression",
+)
+
+
+def _linearrepnvisitor_validator(visitor):
+    if not isinstance(visitor, LinearRepnVisitor):
+        raise TypeError(
+            "'_linear_repn_visitor' config argument should be an instance of"
+            " LinearRepnVisitor."
+        )
+    return visitor
+
+
+_linear_repn_visitor = ConfigValue(
+    default=None,
+    domain=_linearrepnvisitor_validator,
+    description="Visitor used to generate LinearRepn of each expression",
 )
 
 
@@ -106,6 +127,9 @@ IncidenceConfig.declare("method", _method)
 
 
 IncidenceConfig.declare("_ampl_repn_visitor", _ampl_repn_visitor)
+
+
+IncidenceConfig.declare("_linear_repn_visitor", _linear_repn_visitor)
 
 
 def get_config_from_kwds(**kwds):
@@ -145,4 +169,16 @@ def get_config_from_kwds(**kwds):
             sorter,
         )
         kwds["_ampl_repn_visitor"] = amplvisitor
+    elif (
+        kwds.get("method", None) is IncidenceMethod.linear_repn
+        and kwds.get("_linear_repn_visitor", None) is None
+    ):
+        subexpression_cache = {}
+        var_map = {}
+        var_order = {}
+        sorter = FileDeterminism_to_SortComponents(FileDeterminism.ORDERED)
+        linearvisitor = LinearRepnVisitor(
+            subexpression_cache, var_map, var_order, sorter
+        )
+        kwds["_linear_repn_visitor"] = linearvisitor
     return IncidenceConfig(kwds)
