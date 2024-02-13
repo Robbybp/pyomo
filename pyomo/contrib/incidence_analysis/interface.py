@@ -137,6 +137,21 @@ def extract_bipartite_subgraph(graph, nodes0, nodes1):
 
     """
     subgraph = graph.subgraph(nodes0 + nodes1)
+    # TODO: Any error checking that nodes are valid bipartition?
+    for node in nodes0:
+        bipartite = graph.nodes[node]["bipartite"]
+        if bipartite != 0:
+            raise RuntimeError(
+                "Invalid bipartite sets. Node {node} in set 0 has"
+                " bipartite={bipartite}"
+            )
+    for node in nodes1:
+        bipartite = graph.nodes[node]["bipartite"]
+        if bipartite != 1:
+            raise RuntimeError(
+                "Invalid bipartite sets. Node {node} in set 1 has"
+                " bipartite={bipartite}"
+            )
     old_new_map = {}
     for i, node in enumerate(nodes0 + nodes1):
         if node in old_new_map:
@@ -144,32 +159,6 @@ def extract_bipartite_subgraph(graph, nodes0, nodes1):
         old_new_map[node] = i
     relabeled_subgraph = nx.relabel_nodes(subgraph, old_new_map)
     return relabeled_subgraph
-    #subgraph = nx.Graph()
-    #sub_M = len(nodes0)
-    #sub_N = len(nodes1)
-    #subgraph.add_nodes_from(range(sub_M), bipartite=0)
-    #subgraph.add_nodes_from(range(sub_M, sub_M + sub_N), bipartite=1)
-
-    #old_new_map = {}
-    #for i, node in enumerate(nodes0 + nodes1):
-    #    if node in old_new_map:
-    #        raise RuntimeError("Node %s provided more than once.")
-    #    old_new_map[node] = i
-
-    #for node1, node2 in graph.edges():
-    #    if node1 in old_new_map and node2 in old_new_map:
-    #        new_node_1 = old_new_map[node1]
-    #        new_node_2 = old_new_map[node2]
-    #        if (
-    #            subgraph.nodes[new_node_1]["bipartite"]
-    #            == subgraph.nodes[new_node_2]["bipartite"]
-    #        ):
-    #            raise RuntimeError(
-    #                "Subgraph is not bipartite. Found an edge between nodes"
-    #                " %s and %s (in the original graph)." % (node1, node2)
-    #            )
-    #        subgraph.add_edge(new_node_1, new_node_2)
-    return subgraph
 
 
 def _generate_variables_in_constraints(constraints, **kwds):
@@ -491,9 +480,22 @@ class IncidenceGraphInterface(object):
             return subgraph
 
     def subgraph(self, variables, constraints):
-        # TODO: copy=True argument we can use to optionally modify in-place?
+        """Extract a subgraph defined by the provided variables and constraints
+
+        Underlying data structures are copied, and constraints are not reinspected
+        for incidence variables (the edges from this incidence graph are used).
+
+        Returns
+        -------
+        ``IncidenceGraphInterface``
+            A new incidence graph containing only the specified variables and
+            constraints, and the edges between pairs thereof.
+
+        """
         nx_subgraph = self._extract_subgraph(variables, constraints)
-        subgraph = IncidenceGraphInterface((nx_subgraph, variables, constraints), **self._config)
+        subgraph = IncidenceGraphInterface(
+            (nx_subgraph, variables, constraints), **self._config
+        )
         return subgraph
 
     @property
