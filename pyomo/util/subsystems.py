@@ -117,6 +117,7 @@ def add_local_external_functions(block):
 
 
 from pyomo.common.timing import HierarchicalTimer
+from pyomo.core.expr.visitor import identify_variables_in_components
 def create_subsystem_block(
     constraints,
     variables=None,
@@ -157,14 +158,12 @@ def create_subsystem_block(
     block.vars = Reference(variables)
     block.cons = Reference(constraints)
     timer.stop("reference")
-    var_set = ComponentSet(variables)
-    input_vars = []
     timer.start("identify-vars")
-    for con in constraints:
-        for var in identify_variables(con.expr, include_fixed=include_fixed):
-            if var not in var_set:
-                input_vars.append(var)
-                var_set.add(var)
+    var_set = ComponentSet(variables)
+    input_vars = identify_variables_in_components(
+        constraints, include_fixed=include_fixed
+    )
+    input_vars = [var for var in input_vars if var not in var_set]
     timer.stop("identify-vars")
     timer.start("reference")
     block.input_vars = Reference(input_vars)
