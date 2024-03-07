@@ -26,6 +26,7 @@ from pyomo.common.numeric_types import (
     native_numeric_types,
     value,
 )
+from pyomo.core.expr.numvalue import NumericValue
 import pyomo.core.expr.expr_common as common
 from pyomo.core.expr.symbol_map import SymbolMap
 
@@ -1394,6 +1395,7 @@ class _StreamVariableVisitor(StreamBasedExpressionVisitor):
         include_fixed=False,
         descend_into_named_expressions=True,
     ):
+        super().__init__()
         self._include_fixed = include_fixed
         self._descend_into_named_expressions = descend_into_named_expressions
         self.named_expressions = []
@@ -1416,7 +1418,11 @@ class _StreamVariableVisitor(StreamBasedExpressionVisitor):
             return True, None
 
     def exitNode(self, node, data):
-        if node.is_variable_type() and (self._include_fixed or not node.fixed):
+        if (
+            isinstance(node, NumericValue)
+            and node.is_variable_type()
+            and (self._include_fixed or not node.fixed)
+        ):
             if id(node) not in self._seen:
                 self._seen.add(id(node))
                 self._variables.append(node)
@@ -1439,12 +1445,12 @@ def identify_variables_in_components(components, include_fixed=True):
     )
     all_variables = []
     for comp in components:
-        all_variables.extend(visitor.walk_expressions(comp.expr))
+        all_variables.extend(visitor.walk_expression(comp.expr))
 
     named_expr_set = set()
     unique_named_exprs = []
     for expr in visitor.named_expressions:
-        if id(expr) in named_expr_set:
+        if id(expr) not in named_expr_set:
             named_expr_set.add(id(expr))
             unique_named_exprs.append(expr)
 
@@ -1455,7 +1461,7 @@ def identify_variables_in_components(components, include_fixed=True):
 
         for new_expr in visitor.named_expressions:
             if id(new_expr) not in named_expr_set:
-                named_expr_set.add(new_expr)
+                named_expr_set.add(id(new_expr))
                 unique_named_exprs.append(new_expr)
 
     unique_vars = []
