@@ -20,12 +20,13 @@ from pyomo.core.base.expression import Expression
 from pyomo.core.base.objective import Objective
 from pyomo.core.base.external import ExternalFunction
 from pyomo.core.expr.visitor import StreamBasedExpressionVisitor
+from pyomo.core.expr.visitor import identify_variables_in_components
 from pyomo.core.expr.numeric_expr import ExternalFunctionExpression
 from pyomo.core.expr.numvalue import native_types, NumericValue
+from pyomo.util.vars_from_expressions import get_vars_from_components
 
 
 class _ExternalFunctionVisitor(StreamBasedExpressionVisitor):
-
     def __init__(self, descend_into_named_expressions=True):
         super().__init__()
         self._descend_into_named_expressions = descend_into_named_expressions
@@ -37,15 +38,15 @@ class _ExternalFunctionVisitor(StreamBasedExpressionVisitor):
         return True, None
 
     def beforeChild(self, parent, child, index):
-        if (
+        if child.__class__ in native_types:
+            return False, None
+        elif (
             not self._descend_into_named_expressions
-            and isinstance(child, NumericValue)
             and child.is_named_expression_type()
         ):
             self.named_expressions.append(child)
             return False, None
-        else:
-            return True, None
+        return True, None
 
     def exitNode(self, node, data):
         if type(node) is ExternalFunctionExpression:
@@ -56,18 +57,8 @@ class _ExternalFunctionVisitor(StreamBasedExpressionVisitor):
     def finalizeResult(self, result):
         return self._functions
 
-    #def enterNode(self, node):
-    #    pass
-
-    #def acceptChildResult(self, node, data, child_result, child_idx):
-    #    if child_result.__class__ in native_types:
-    #        return False, None
-    #    return child_result.is_expression_type(), None
-
 
 def identify_external_functions(expr):
-    # TODO: Potentially support descend_into_named_expressions argument here.
-    # This will likely require converting from a generator to a function.
     yield from _ExternalFunctionVisitor().walk_expression(expr)
 
 
@@ -76,8 +67,7 @@ def add_local_external_functions(block):
     named_expressions = []
     visitor = _ExternalFunctionVisitor(descend_into_named_expressions=False)
     for comp in block.component_data_objects(
-        (Constraint, Expression, Objective),
-        active=True,
+        (Constraint, Expression, Objective), active=True
     ):
         ef_exprs.extend(visitor.walk_expression(comp.expr))
     named_expr_set = ComponentSet(visitor.named_expressions)
@@ -113,14 +103,7 @@ def add_local_external_functions(block):
     return fcn_comp_map
 
 
-from pyomo.common.timing import HierarchicalTimer
-from pyomo.core.expr.visitor import identify_variables_in_components
-def create_subsystem_block(
-    constraints,
-    variables=None,
-    include_fixed=False,
-    timer=None,
-):
+def create_subsystem_block(constraints, variables=None, include_fixed=False):
     """This function creates a block to serve as a subsystem with the
     specified variables and constraints. To satisfy certain writers, other
     variables that appear in the constraints must be added to the block as
@@ -144,34 +127,25 @@ def create_subsystem_block(
     as well as other variables present in the constraints
 
     """
-    if timer is None:
-        timer = HierarchicalTimer()
     if variables is None:
         variables = []
-    timer.start("block")
     block = Block(concrete=True)
-    timer.stop("block")
-    timer.start("reference")
     block.vars = Reference(variables)
     block.cons = Reference(constraints)
-    timer.stop("reference")
-    timer.start("identify-vars")
     var_set = ComponentSet(variables)
+    #input_vars = get_vars_from_components(
+    #    block, Constraint, include_fixed=include_fixed
+    #)
     input_vars = identify_variables_in_components(
         constraints, include_fixed=include_fixed
     )
     input_vars = [var for var in input_vars if var not in var_set]
-    timer.stop("identify-vars")
-    timer.start("reference")
     block.input_vars = Reference(input_vars)
-    timer.stop("reference")
-    timer.start("external-fcns")
     add_local_external_functions(block)
-    timer.stop("external-fcns")
     return block
 
 
-def generate_subsystem_blocks(subsystems, include_fixed=False, timer=None):
+def generate_subsystem_blocks(subsystems, include_fixed=False):
     """Generates blocks that contain subsystems of variables and constraints.
 
     Arguments
@@ -190,10 +164,8 @@ def generate_subsystem_blocks(subsystems, include_fixed=False, timer=None):
     not specified are contained in the input_vars component.
 
     """
-    if timer is None:
-        timer = HierarchicalTimer()
     for cons, vars in subsystems:
-        block = create_subsystem_block(cons, vars, include_fixed, timer=timer)
+        block = create_subsystem_block(cons, vars, include_fixed)
         yield block, list(block.input_vars.values())
 
 
