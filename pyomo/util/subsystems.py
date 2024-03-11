@@ -20,7 +20,6 @@ from pyomo.core.base.expression import Expression
 from pyomo.core.base.objective import Objective
 from pyomo.core.base.external import ExternalFunction
 from pyomo.core.expr.visitor import StreamBasedExpressionVisitor
-from pyomo.core.expr.visitor import identify_variables_in_components
 from pyomo.core.expr.numeric_expr import ExternalFunctionExpression
 from pyomo.core.expr.numvalue import native_types, NumericValue
 from pyomo.util.vars_from_expressions import get_vars_from_components
@@ -133,11 +132,8 @@ def create_subsystem_block(constraints, variables=None, include_fixed=False):
     block.vars = Reference(variables)
     block.cons = Reference(constraints)
     var_set = ComponentSet(variables)
-    #input_vars = get_vars_from_components(
-    #    block, Constraint, include_fixed=include_fixed
-    #)
-    input_vars = identify_variables_in_components(
-        constraints, include_fixed=include_fixed
+    input_vars = get_vars_from_components(
+        block, Constraint, include_fixed=include_fixed
     )
     input_vars = [var for var in input_vars if var not in var_set]
     block.input_vars = Reference(input_vars)
