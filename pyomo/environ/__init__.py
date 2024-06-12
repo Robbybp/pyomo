@@ -50,6 +50,8 @@ _packages = [
     'pyomo.contrib.multistart',
     'pyomo.contrib.preprocessing',
     'pyomo.contrib.pynumero',
+    'pyomo.contrib.simplification',
+    'pyomo.contrib.solver',
     'pyomo.contrib.trustregion',
 ]
 

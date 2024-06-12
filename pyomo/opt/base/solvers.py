@@ -178,7 +178,11 @@ class SolverFactoryClass(Factory):
         return opt
 
 
+LegacySolverFactory = SolverFactoryClass('solver type')
+
 SolverFactory = SolverFactoryClass('solver type')
+SolverFactory._cls = LegacySolverFactory._cls
+SolverFactory._doc = LegacySolverFactory._doc
 
 
 #
@@ -532,15 +536,15 @@ class OptSolver(object):
         # If the inputs are models, then validate that they have been
         # constructed! Collect suffix names to try and import from solution.
         #
-        from pyomo.core.base.block import _BlockData
+        from pyomo.core.base.block import BlockData
         import pyomo.core.base.suffix
         from pyomo.core.kernel.block import IBlock
         import pyomo.core.kernel.suffix
 
         _model = None
         for arg in args:
-            if isinstance(arg, (_BlockData, IBlock)):
-                if isinstance(arg, _BlockData):
+            if isinstance(arg, (BlockData, IBlock)):
+                if isinstance(arg, BlockData):
                     if not arg.is_constructed():
                         raise RuntimeError(
                             "Attempting to solve model=%s with unconstructed "
@@ -549,7 +553,7 @@ class OptSolver(object):
 
                 _model = arg
                 # import suffixes must be on the top-level model
-                if isinstance(arg, _BlockData):
+                if isinstance(arg, BlockData):
                     model_suffixes = list(
                         name
                         for (

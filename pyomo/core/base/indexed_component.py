@@ -18,7 +18,7 @@ import pyomo.core.expr as EXPR
 import pyomo.core.base as BASE
 from pyomo.core.base.indexed_component_slice import IndexedComponent_slice
 from pyomo.core.base.initializer import Initializer
-from pyomo.core.base.component import Component, ActiveComponent
+from pyomo.core.base.component import Component, ActiveComponent, ComponentData
 from pyomo.core.base.config import PyomoOptions
 from pyomo.core.base.enums import SortComponents
 from pyomo.core.base.global_set import UnindexedComponent_set
@@ -160,9 +160,12 @@ include the "return" statement at the end of your rule.
 """
 
 
-def rule_result_substituter(result_map):
+def rule_result_substituter(result_map, map_types):
     _map = result_map
-    _map_types = set(type(key) for key in result_map)
+    if map_types is None:
+        _map_types = set(type(key) for key in result_map)
+    else:
+        _map_types = map_types
 
     def rule_result_substituter_impl(rule, *args, **kwargs):
         if rule.__class__ in _map_types:
@@ -203,7 +206,7 @@ _map_rule_funcdef = """def wrapper_function%s:
 """
 
 
-def rule_wrapper(rule, wrapping_fcn, positional_arg_map=None):
+def rule_wrapper(rule, wrapping_fcn, positional_arg_map=None, map_types=None):
     """Wrap a rule with another function
 
     This utility method provides a way to wrap a function (rule) with
@@ -230,7 +233,7 @@ def rule_wrapper(rule, wrapping_fcn, positional_arg_map=None):
 
     """
     if isinstance(wrapping_fcn, dict):
-        wrapping_fcn = rule_result_substituter(wrapping_fcn)
+        wrapping_fcn = rule_result_substituter(wrapping_fcn, map_types)
         if not inspect.isfunction(rule):
             return wrapping_fcn(rule)
     # Because some of our processing of initializer functions relies on
@@ -603,7 +606,7 @@ You can silence this warning by one of three ways:
         """Return a list (index,data) tuples from the dictionary"""
         return self.items()
 
-    def __getitem__(self, index):
+    def __getitem__(self, index) -> ComponentData:
         """
         This method returns the data corresponding to the given index.
         """
@@ -728,7 +731,7 @@ You can silence this warning by one of three ways:
 
         # this supports "del m.x[:,1]" through a simple recursive call
         if index.__class__ is IndexedComponent_slice:
-            # Assert that this slice ws just generated
+            # Assert that this slice was just generated
             assert len(index._call_stack) == 1
             # Make a copy of the slicer items *before* we start
             # iterating over it (since we will be removing items!).

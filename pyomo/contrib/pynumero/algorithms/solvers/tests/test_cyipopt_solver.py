@@ -321,6 +321,16 @@ class TestCyIpoptSolver(unittest.TestCase):
         with self.assertRaisesRegex(PyNumeroEvaluationError, msg):
             res = solver.solve(m, tee=True)
 
+    def test_solve_without_objective(self):
+        m = create_model1()
+        m.o.deactivate()
+        m.x[2].fix(0.0)
+        m.x[3].fix(4.0)
+        solver = pyo.SolverFactory("cyipopt")
+        res = solver.solve(m, tee=True)
+        pyo.assert_optimal_termination(res)
+        self.assertAlmostEqual(m.x[1].value, 9.0)
+
     def test_infeasibility_callback(self):
         model = create_model1()
         intermediate_cb = InfeasibilityCallback(
@@ -344,7 +354,3 @@ class TestCyIpoptSolver(unittest.TestCase):
         #        fd = _teeStream.STDOUT.fileno()
         #    with redirect_fd(fd=1, output=fd, synchronize=False):
         #        solver.solve(model, tee=True)
-
-
-if __name__ == "__main__":
-    TestCyIpoptSolver().test_infeasibility_callback()
