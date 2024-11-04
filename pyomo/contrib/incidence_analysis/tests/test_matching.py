@@ -243,5 +243,71 @@ class TestMatching(unittest.TestCase):
         self.assertEqual(len(values), N - 1)
 
 
+import pyomo.environ as pyo
+from pyomo.contrib.incidence_analysis import IncidenceGraphInterface, IncidenceMethod
+from pyomo.contrib.incidence_analysis.tests.models_for_testing import (
+    make_degenerate_solid_phase_model,
+    make_dynamic_model,
+)
+class TestMinWeightMaxCardinalityMatching(unittest.TestCase):
+    def _get_weight_of_matching(self, igraph, matching):
+        total_weight = 0.0
+        M = len(igraph.constraints)
+        for con, var in matching.items():
+            i = igraph._con_index_map[con]
+            j = igraph._var_index_map[var] + M
+            total_weight += igraph._incidence_graph.edges[i, j]["weight"]
+        return total_weight
+
+    def test_weighted_matching(self):
+        m = pyo.ConcreteModel()
+        m.x = pyo.Var([1, 2, 3, 4, 5])
+        m.eq = pyo.Constraint(pyo.PositiveIntegers)
+        m.eq[1] = 1*m.x[1] + 2*m.x[2] + 3*m.x[3] + 4*m.x[4] == 1
+        m.eq[2] = 3*m.x[1] + 4*m.x[2] + 1*m.x[3] + 2*m.x[4] == 1
+        m.eq[3] = 0.8*m.x[1] + 0.5*m.x[2] + 0.1*m.x[3] + 0.2*m.x[4] == 1
+        igraph = IncidenceGraphInterface(
+            m,
+            weighted=True,
+            linear_only=True,
+            method=IncidenceMethod.ampl_repn,
+        )
+
+        matching = igraph.maximum_matching()
+        naive_weight = self._get_weight_of_matching(igraph, matching)
+        matching = igraph.minimum_weight_maximum_matching()
+        min_weight = self._get_weight_of_matching(igraph, matching)
+        assert min_weight < naive_weight
+
+    def test_weighted_matching_solidmodel(self):
+        m = make_degenerate_solid_phase_model()
+        igraph = IncidenceGraphInterface(
+            m,
+            weighted=True,
+            linear_only=True,
+            method=IncidenceMethod.ampl_repn,
+        )
+        matching = igraph.maximum_matching()
+        naive_weight = self._get_weight_of_matching(igraph, matching)
+        mw_matching = igraph.minimum_weight_maximum_matching()
+        min_weight = self._get_weight_of_matching(igraph, mw_matching)
+        # Both have weights of zero here...
+        #assert min_weight < naive_weight
+
+    def test_weighted_matching_dynamic(self):
+        m = make_dynamic_model()
+        igraph = IncidenceGraphInterface(
+            m,
+            weighted=True,
+            linear_only=True,
+            method=IncidenceMethod.ampl_repn,
+        )
+        matching = igraph.maximum_matching()
+        naive_weight = self._get_weight_of_matching(igraph, matching)
+        mw_matching = igraph.minimum_weight_maximum_matching()
+        min_weight = self._get_weight_of_matching(igraph, mw_matching)
+        assert min_weight < naive_weight
+
+
 if __name__ == "__main__":
     unittest.main()

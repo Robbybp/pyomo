@@ -11,6 +11,7 @@
 """Functionality for identifying variables that participate in expressions
 """
 
+import math
 from contextlib import nullcontext
 
 from pyomo.core.expr.visitor import identify_variables
@@ -105,19 +106,27 @@ def _get_incident_via_ampl_repn(expr, linear_only, visitor):
                 unique_nonlinear_var_ids.append(v_id)
 
     nonlinear_vars = [var_map[v_id] for v_id in unique_nonlinear_var_ids]
-    linear_only_vars = [
-        var_map[v_id]
+    linear_only_var_coefs = [
+        (var_map[v_id], coef)
         for v_id, coef in repn.linear.items()
         if coef != 0.0 and v_id not in nonlinear_var_id_set
     ]
     if linear_only:
-        return linear_only_vars
+        return linear_only_var_coefs
     else:
-        variables = linear_only_vars + nonlinear_vars
-        return variables
+        # Note: It may be useful to support returning a coefficient for
+        # nonlinear vars as well. I don't think this is possible through AMPLRepn,
+        # so this would need to use e.g. PyomoNLP. But then behavior in this case
+        # would be different than in the PyomoNLP case.
+        nonlinear_var_coefs = [(v, None) for v in nonlinear_vars]
+        var_coefs = linear_only_var_coefs + nonlinear_var_coefs
+        return var_coefs
 
 
-def get_incident_variables(expr, **kwds):
+# TODO: A collect_incident_variables function that appends new variables to
+# an existing list would probably give nontrivial performance improvements
+# compared to creating many small lists of variables.
+def get_incident_variables(expr, *, return_var_info=False, **kwds):
     """Get variables that participate in an expression
 
     The exact variables returned depends on the method used to determine incidence.
@@ -171,22 +180,34 @@ def get_incident_variables(expr, **kwds):
     if method is IncidenceMethod.ampl_repn and amplrepnvisitor is None:
         # Developer error, this should never happen!
         raise RuntimeError("_ampl_repn_visitor must be provided when using ampl_repn")
+    if return_var_info and method is not IncidenceMethod.ampl_repn:
+        raise RuntimeError(
+            "Only ampl_repn is supported when using return_var_info=True"
+        )
 
     # Dispatch to correct method
     if method is IncidenceMethod.identify_variables:
-        return _get_incident_via_identify_variables(expr, include_fixed)
+        variables = _get_incident_via_identify_variables(expr, include_fixed)
     elif method is IncidenceMethod.standard_repn:
-        return _get_incident_via_standard_repn(
+        variables = _get_incident_via_standard_repn(
             expr, include_fixed, linear_only, compute_values=False
         )
     elif method is IncidenceMethod.standard_repn_compute_values:
-        return _get_incident_via_standard_repn(
+        variables = _get_incident_via_standard_repn(
             expr, include_fixed, linear_only, compute_values=True
         )
     elif method is IncidenceMethod.ampl_repn:
-        return _get_incident_via_ampl_repn(expr, linear_only, amplrepnvisitor)
+        var_coefs = _get_incident_via_ampl_repn(expr, linear_only, amplrepnvisitor)
+        if return_var_info:
+            # TODO: Dataclass may be a better choice than a dict for the return type
+            # here? Return "coef" as the key rather than weight. At some point, we
+            # will put these into the NetworkX graph with attribute "weight",
+            variables = [(v, dict(coef=c)) for v, c in var_coefs]
+        else:
+            variables = [v for (v, c) in var_coefs]
     else:
         raise ValueError(
             f"Unrecognized value {method} for the method used to identify incident"
             f" variables. See the IncidenceMethod enum for valid methods."
         )
+    return variables

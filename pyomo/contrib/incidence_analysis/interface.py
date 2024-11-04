@@ -66,7 +66,14 @@ def get_incidence_graph(variables, constraints, **kwds):
     return get_bipartite_incidence_graph(variables, constraints, **config)
 
 
-def get_bipartite_incidence_graph(variables, constraints, **kwds):
+from pyomo.contrib.incidence_analysis.config import IncidenceMethod
+import math
+def get_bipartite_incidence_graph(
+    variables,
+    constraints,
+    weighted=False,
+    **kwds,
+):
     """Return the bipartite incidence graph of Pyomo variables and constraints.
 
     Each node in the returned graph is an integer. The convention is that,
@@ -102,9 +109,25 @@ def get_bipartite_incidence_graph(variables, constraints, **kwds):
     graph.add_nodes_from(range(M, M + N), bipartite=1)
     var_node_map = ComponentMap((v, M + i) for i, v in enumerate(variables))
     for i, con in enumerate(constraints):
-        for var in get_incident_variables(con.body, **config):
-            if var in var_node_map:
-                graph.add_edge(i, var_node_map[var])
+        if weighted and config.method == IncidenceMethod.ampl_repn:
+            return_var_info = True
+        else:
+            return_var_info = False
+        for var in get_incident_variables(
+            con.body, return_var_info=return_var_info, **config
+        ):
+            if weighted and config.method == IncidenceMethod.ampl_repn:
+                # We returned vars and info
+                var, info = var
+                # Weight is "logarithmic distance from 1". TODO: Make this more
+                # modular so we can specify other weights.
+                # NOTE: Assuming coefs are not None, i.e. everything is linear
+                weight = abs(math.log(abs(info["coef"])))
+                if var in var_node_map:
+                    graph.add_edge(i, var_node_map[var], weight=weight)
+            else:
+                if var in var_node_map:
+                    graph.add_edge(i, var_node_map[var])
     return graph
 
 
@@ -268,7 +291,14 @@ class IncidenceGraphInterface(object):
 
     """
 
-    def __init__(self, model=None, active=True, include_inequality=True, **kwds):
+    def __init__(
+        self,
+        model=None,
+        active=True,
+        include_inequality=True,
+        weighted=False,
+        **kwds,
+    ):
         """Construct an IncidenceGraphInterface object"""
         # If the user gives us a model or an NLP, we assume they want us
         # to cache the incidence graph for fast analysis later on.
@@ -285,6 +315,9 @@ class IncidenceGraphInterface(object):
                 for con in model.component_data_objects(Constraint, active=active)
                 if include_inequality or isinstance(con.expr, EqualityExpression)
             ]
+            # NOTE: For performance, we could just generate these variables at the
+            # same time that we generate the incidence graph. This may be a non-trivial
+            # speedup when using e.g. the ampl_repn option.
             self._variables = list(
                 _generate_variables_in_constraints(self._constraints, **self._config)
             )
@@ -295,7 +328,10 @@ class IncidenceGraphInterface(object):
                 (con, i) for i, con in enumerate(self._constraints)
             )
             self._incidence_graph = get_bipartite_incidence_graph(
-                self._variables, self._constraints, **self._config
+                self._variables,
+                self._constraints,
+                weighted=weighted,
+                **self._config,
             )
         elif pyomo_nlp_available and isinstance(model, pyomo_nlp.PyomoNLP):
             if not active:
@@ -621,6 +657,73 @@ class IncidenceGraphInterface(object):
         return ComponentMap(
             (constraints[i], variables[j - M]) for i, j in matching.items()
         )
+
+    def minimum_weight_maximum_matching(self, variables=None, constraints=None):
+        variables, constraints = self._validate_input(variables, constraints)
+        vdmp, cdmp = self.dulmage_mendelsohn(variables, constraints)
+        v_uc = vdmp.unmatched + vdmp.underconstrained
+        v_oc = vdmp.overconstrained
+        v_wc = vdmp.square
+        c_wc = cdmp.square
+        c_uc = cdmp.underconstrained
+        c_oc = cdmp.overconstrained + cdmp.unmatched
+
+        g_uc = self._extract_subgraph(v_uc, c_uc)
+        g_wc = self._extract_subgraph(v_wc, c_wc)
+        g_oc = self._extract_subgraph(v_oc, c_oc)
+
+        # NOTE: I believe this modifies the weights in the original graph.
+        for e, einfo in g_uc.edges.items():
+            # This is to work around the fact that scipy doesn't like zero-valued weights...
+            einfo["weight"] += 1
+        for e, einfo in g_wc.edges.items():
+            einfo["weight"] += 1
+        for e, einfo in g_oc.edges.items():
+            einfo["weight"] += 1
+
+        # Graph node convention comes into play here.
+        # Note that we are constructing matrices from relabeled nodes, so we know
+        # that node labels are "local" to each graph.
+        M_uc = len(c_uc)
+        M_oc = len(c_oc)
+        M_wc = len(c_wc)
+        v_uc_nodes = list(range(M_uc, M_uc + len(v_uc)))
+        v_oc_nodes = list(range(M_oc, M_oc + len(v_oc)))
+        v_wc_nodes = list(range(M_wc, M_wc + len(v_wc)))
+        c_uc_nodes = list(range(len(c_uc)))
+        c_oc_nodes = list(range(len(c_oc)))
+        c_wc_nodes = list(range(len(c_wc)))
+
+        nxb = nx.algorithms.bipartite
+        if v_uc_nodes:
+            # NOTE: This gives an obnoxious FutureWarning about a future change to a
+            # sparse matrix return value despite the fact that I'm using format=coo.
+            # (This should go away when I update to NetworkX 3.0, though)
+            m_uc = nxb.biadjacency_matrix(g_uc, row_order=c_uc_nodes, column_order=v_uc_nodes, format="coo")
+            uc_row, uc_col = sp.sparse.csgraph.min_weight_full_bipartite_matching(m_uc)
+            uc_matching = [(c_uc[i], v_uc[j]) for i, j in zip(uc_row, uc_col)]
+        else:
+            # Work around fact that min_weight_full_bipartite_matching doesn't work
+            # when given an empty graph...
+            uc_matching = []
+
+        if c_oc_nodes:
+            m_oc = nxb.biadjacency_matrix(g_oc, row_order=c_oc_nodes, column_order=v_oc_nodes, format="coo")
+            oc_row, oc_col = sp.sparse.csgraph.min_weight_full_bipartite_matching(m_oc)
+            oc_matching = [(c_oc[i], v_oc[j]) for i, j in zip(oc_row, oc_col)]
+        else:
+            oc_matching = []
+
+        if v_wc_nodes:
+            m_wc = nxb.biadjacency_matrix(g_wc, row_order=c_wc_nodes, column_order=v_wc_nodes, format="coo")
+            wc_row, wc_col = sp.sparse.csgraph.min_weight_full_bipartite_matching(m_wc)
+            wc_matching = [(c_wc[i], v_wc[j]) for i, j in zip(wc_row, wc_col)]
+        else:
+            wc_matching = []
+
+        matching = uc_matching + wc_matching + oc_matching
+        matching = ComponentMap(matching)
+        return matching
 
     def get_connected_components(self, variables=None, constraints=None):
         """Partition variables and constraints into weakly connected components
