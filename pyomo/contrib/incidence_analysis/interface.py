@@ -695,11 +695,18 @@ class IncidenceGraphInterface(object):
         c_wc_nodes = list(range(len(c_wc)))
 
         nxb = nx.algorithms.bipartite
+        import numpy as np
         if c_uc_nodes:
             # NOTE: This gives an obnoxious FutureWarning about a future change to a
             # sparse matrix return value despite the fact that I'm using format=coo.
             # (This should go away when I update to NetworkX 3.0, though)
             m_uc = nxb.biadjacency_matrix(g_uc, row_order=c_uc_nodes, column_order=v_uc_nodes, format="coo")
+            m_uc = sp.sparse.coo_matrix(
+                # Converting indices to int32 manually appears to be necessary on some
+                # platforms...
+                (m_uc.data, (m_uc.row.astype(np.int32), m_uc.col.astype(np.int32))),
+                shape=m_uc.shape,
+            )
             uc_row, uc_col = sp.sparse.csgraph.min_weight_full_bipartite_matching(m_uc)
             uc_matching = [(c_uc[i], v_uc[j]) for i, j in zip(uc_row, uc_col)]
         else:
@@ -709,6 +716,10 @@ class IncidenceGraphInterface(object):
 
         if v_oc_nodes:
             m_oc = nxb.biadjacency_matrix(g_oc, row_order=c_oc_nodes, column_order=v_oc_nodes, format="coo")
+            m_oc = sp.sparse.coo_matrix(
+                (m_oc.data, (m_oc.row.astype(np.int32), m_oc.col.astype(np.int32))),
+                shape=m_oc.shape,
+            )
             oc_row, oc_col = sp.sparse.csgraph.min_weight_full_bipartite_matching(m_oc)
             oc_matching = [(c_oc[i], v_oc[j]) for i, j in zip(oc_row, oc_col)]
         else:
@@ -716,6 +727,10 @@ class IncidenceGraphInterface(object):
 
         if v_wc_nodes:
             m_wc = nxb.biadjacency_matrix(g_wc, row_order=c_wc_nodes, column_order=v_wc_nodes, format="coo")
+            m_wc = sp.sparse.coo_matrix(
+                (m_wc.data, (m_wc.row.astype(np.int32), m_wc.col.astype(np.int32))),
+                shape=m_wc.shape,
+            )
             wc_row, wc_col = sp.sparse.csgraph.min_weight_full_bipartite_matching(m_wc)
             wc_matching = [(c_wc[i], v_wc[j]) for i, j in zip(wc_row, wc_col)]
         else:
