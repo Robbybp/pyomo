@@ -695,7 +695,7 @@ class IncidenceGraphInterface(object):
         c_wc_nodes = list(range(len(c_wc)))
 
         nxb = nx.algorithms.bipartite
-        if v_uc_nodes:
+        if c_uc_nodes:
             # NOTE: This gives an obnoxious FutureWarning about a future change to a
             # sparse matrix return value despite the fact that I'm using format=coo.
             # (This should go away when I update to NetworkX 3.0, though)
@@ -707,7 +707,7 @@ class IncidenceGraphInterface(object):
             # when given an empty graph...
             uc_matching = []
 
-        if c_oc_nodes:
+        if v_oc_nodes:
             m_oc = nxb.biadjacency_matrix(g_oc, row_order=c_oc_nodes, column_order=v_oc_nodes, format="coo")
             oc_row, oc_col = sp.sparse.csgraph.min_weight_full_bipartite_matching(m_oc)
             oc_matching = [(c_oc[i], v_oc[j]) for i, j in zip(oc_row, oc_col)]
