@@ -676,14 +676,17 @@ class IncidenceGraphInterface(object):
         g_wc = self._extract_subgraph(v_wc, c_wc)
         g_oc = self._extract_subgraph(v_oc, c_oc)
 
-        # NOTE: I believe this modifies the weights in the original graph.
+        # This is to work around the fact that scipy doesn't like zero-valued weights...
+        # Note that an appropriate adjustment depends on the choice of weight. For
+        # abs(log(abs(coef))), we want to add 1. For -abs(coef), we want to subtract
+        # 1.
+        eadjust = -1
         for e, einfo in g_uc.edges.items():
-            # This is to work around the fact that scipy doesn't like zero-valued weights...
-            einfo["weight"] += 1
+            einfo["weight"] += eadjust
         for e, einfo in g_wc.edges.items():
-            einfo["weight"] += 1
+            einfo["weight"] += eadjust
         for e, einfo in g_oc.edges.items():
-            einfo["weight"] += 1
+            einfo["weight"] += eadjust
 
         # Graph node convention comes into play here.
         # Note that we are constructing matrices from relabeled nodes, so we know
