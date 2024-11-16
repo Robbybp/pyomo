@@ -122,7 +122,11 @@ def get_bipartite_incidence_graph(
                 # Weight is "logarithmic distance from 1". TODO: Make this more
                 # modular so we can specify other weights.
                 # NOTE: Assuming coefs are not None, i.e. everything is linear
-                weight = abs(math.log(abs(info["coef"])))
+                #weight = abs(math.log(abs(info["coef"])))
+                #
+                # Now weights are "negative magnitude". In this way, min weight will
+                # choose maximum magnitudes
+                weight = -abs(info["coef"])
                 if var in var_node_map:
                     graph.add_edge(i, var_node_map[var], weight=weight)
             else:
