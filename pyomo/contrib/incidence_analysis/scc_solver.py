@@ -162,7 +162,7 @@ def solve_strongly_connected_components(
         for scc, inputs in scc_input_list:
             # Propagate bounds forward. This computes bounds on decision variables
             # based on fixed "degree of freedom" values. This may help us propagate
-            # bounds backwards later.
+            # bound backwards in the reverse pass.
             fbbt(scc)
         for scc, inputs in reversed(scc_input_list):
             # Propagate bounds in the "reverse direction". This attempts to strengthen
