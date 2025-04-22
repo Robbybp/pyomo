@@ -12,6 +12,7 @@
 import logging
 
 from pyomo.core.base.constraint import Constraint
+from pyomo.common.collections import ComponentMap
 from pyomo.util.calc_var_value import calculate_variable_from_constraint
 from pyomo.util.subsystems import TemporarySubsystemManager, generate_subsystem_blocks
 from pyomo.contrib.incidence_analysis.interface import (
@@ -19,6 +20,7 @@ from pyomo.contrib.incidence_analysis.interface import (
     _generate_variables_in_constraints,
 )
 from pyomo.contrib.incidence_analysis.config import IncidenceMethod
+from pyomo.contrib.fbbt.fbbt import fbbt
 
 
 _log = logging.getLogger(__name__)
@@ -92,7 +94,13 @@ def generate_strongly_connected_components(
 
 
 def solve_strongly_connected_components(
-    block, *, solver=None, solve_kwds=None, use_calc_var=True, calc_var_kwds=None
+    block,
+    *,
+    solver=None,
+    solve_kwds=None,
+    use_calc_var=True,
+    calc_var_kwds=None,
+    propagate_bounds=False,
 ):
     """Solve a square system of variables and equality constraints by
     solving strongly connected components individually.
@@ -145,9 +153,23 @@ def solve_strongly_connected_components(
 
     res_list = []
     log_blocks = _log.isEnabledFor(logging.DEBUG)
-    for scc, inputs in generate_strongly_connected_components(
-        constraints, variables, igraph=igraph
-    ):
+    scc_input_list = list(
+        generate_strongly_connected_components(constraints, variables, igraph=igraph)
+    )
+
+    if propagate_bounds:
+        orig_bounds = [(var.lb, var.ub) for var in variables]
+        for scc, inputs in scc_input_list:
+            # Propagate bounds forward. This computes bounds on decision variables
+            # based on fixed "degree of freedom" values. This may help us propagate
+            # bounds backwards later.
+            fbbt(scc)
+        for scc, inputs in reversed(scc_input_list):
+            # Propagate bounds in the "reverse direction". This attempts to strengthen
+            # "upstream" bounds based on existing bounds on decision variables.
+            fbbt(scc)
+
+    for scc, inputs in scc_input_list:
         with TemporarySubsystemManager(to_fix=inputs, remove_bounds_on_fix=True):
             N = len(scc.vars)
             if N == 1 and use_calc_var:
@@ -170,4 +192,9 @@ def solve_strongly_connected_components(
                     _log.debug(f"Solving {N}x{N} block.")
                 results = solver.solve(scc, **solve_kwds)
             res_list.append(results)
+    if propagate_bounds:
+        # Reset bounds to their original values
+        for var, (lb, ub) in zip(variables, orig_bounds):
+            var.setlb(lb)
+            var.setub(ub)
     return res_list
