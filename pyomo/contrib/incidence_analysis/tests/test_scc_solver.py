@@ -500,6 +500,44 @@ class TestSolveSCC(unittest.TestCase):
         self.assertAlmostEqual(m.x[2].value, 3.21642835)
         self.assertEqual(m.x[3].value, 1.0)
 
+    @unittest.skipUnless(
+        pyo.SolverFactory("ipopt").available(), "IPOPT is not available"
+    )
+    def test_with_boundprop(self):
+        """Test that, with the propagate_bounds=True option, we respect bounds
+        that we would otherwise neglect.
+        """
+        def make_model():
+            m = pyo.ConcreteModel()
+            m.x = pyo.Var([1, 2, 3, 4], initialize=1.0)
+            m.eq = pyo.Constraint(pyo.PositiveIntegers)
+            m.eq[1] = m.x[1]**2 == 1.0
+            m.x[1] = -2.0
+            m.eq[2] = m.x[2]**2 == 4.0
+            m.x[2].setlb(1.0)
+            m.eq[3] = m.x[2] == m.x[3]
+            m.eq[4] = m.x[1] * m.x[3] * m.x[4] == 1.0
+            m.x[4].setlb(0.0)
+            return m
+
+        solver = pyo.SolverFactory("ipopt")
+        m = make_model()
+        reslist = solve_strongly_connected_components(
+            m, solver=solver, use_calc_var=False, propagate_bounds=False
+        )
+        self.assertFalse(all(pyo.check_optimal_termination(res) for res in reslist))
+        self.assertAlmostEqual(m.x[1].value, -1)
+
+        m = make_model()
+        reslist = solve_strongly_connected_components(
+            m, solver=solver, use_calc_var=False, propagate_bounds=True
+        )
+        self.assertTrue(all(pyo.check_optimal_termination(res) for res in reslist))
+        self.assertAlmostEqual(m.x[1].value, 1.0)
+        self.assertAlmostEqual(m.x[2].value, 2.0)
+        self.assertAlmostEqual(m.x[3].value, 2.0)
+        self.assertAlmostEqual(m.x[4].value, 0.5)
+
 
 @unittest.skipUnless(scipy_available, "SciPy is not available")
 @unittest.skipUnless(networkx_available, "NetworkX is not available")
