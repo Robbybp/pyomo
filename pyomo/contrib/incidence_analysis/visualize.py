@@ -206,7 +206,7 @@ def spy_dulmage_mendelsohn(
         start = (0, 0)
         for vb, cb in zip(vpart_fine, cpart_fine):
             stop = (start[0] + len(vb) - 1, start[1] + len(cb) - 1)
-            # Note that the subset's we're boxing here can't be empty.
+            # Note that the subsets we're boxing here can't be empty.
             ax.add_patch(
                 _get_rectangle_around_coords(
                     start, stop, linestyle=linestyle, linewidth=linewidth
@@ -215,3 +215,34 @@ def spy_dulmage_mendelsohn(
             start = (stop[0] + 1, stop[1] + 1)
 
     return fig, ax
+
+
+def print_block_triangular_decomposition(
+    model=None, variables=None, constraints=None, indent="  ", **kwds,
+):
+    if model is None and (variables is None or constraints is None):
+        raise ValueError(
+            "If model is not provided, variables and constraints must be provided"
+        )
+    igraph = IncidenceGraphInterface(model, **kwds)
+    vblocks, cblocks = igraph.block_triangularize(
+        variables=variables, constraints=constraints
+    )
+    lines = []
+    for i, (vb, cb) in enumerate(zip(vblocks, cblocks)):
+        blockline = f"Block {i}"
+        dim = len(vb)
+        dimline = f"Dimension = {dim}"
+        separator = max(len(blockline), len(dimline)) * "-"
+        lines.extend((blockline, dimline, separator))
+        varnames = [v.name for v in vb]
+        connames = [c.name for c in cb]
+        varlines = [indent + v for v in varnames]
+        conlines = [indent + c for c in connames]
+        lines.append("Variables")
+        lines.extend(varlines)
+        lines.append("Constraints")
+        lines.extend(conlines)
+        lines.append("")
+    msg = "\n".join(lines)
+    print(msg)

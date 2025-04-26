@@ -18,6 +18,7 @@ from .scc_solver import (
 )
 from .incidence import get_incident_variables
 from .config import IncidenceMethod
+from .visualize import print_block_triangular_decomposition
 
 #
 # declare deprecation paths for removed modules
