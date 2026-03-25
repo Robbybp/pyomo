@@ -1,3 +1,5 @@
+.. _pynumero-backward-compatibility:
+
 Backward Compatibility
 ======================
 

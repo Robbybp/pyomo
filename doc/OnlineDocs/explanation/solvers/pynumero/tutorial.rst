@@ -1,3 +1,5 @@
+.. _pynumero-tutorial:
+
 10 Minutes to PyNumero
 ======================
 

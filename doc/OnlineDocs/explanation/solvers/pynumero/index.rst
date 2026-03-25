@@ -12,6 +12,7 @@ PyNumero. For more details, see the :mod:`API documentation <pyomo.contrib.pynum
 
    installation.rst
    tutorial.rst
+   advanced_capabilities.rst
    backward_compatibility.rst
 
 
