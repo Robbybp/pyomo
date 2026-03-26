@@ -5,6 +5,7 @@ Scalar-valued external functions may be embedded into Pyomo models using the AMP
 external function interface. See :ref:`aslfunctions` for several examples.
 However, there are times when you might want to embed a single vector-valued
 function rather than many individual scalar-valued functions:
+
 - You can evaluate many outputs simultaneously in a single function call. (This *could*
   be implemented with many individual scalar-valued functions as long
   as they have a shared cache.)
