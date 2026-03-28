@@ -163,34 +163,73 @@ this function to any Pyomo modeling components.
    ...         return coo_matrix((self.n_inputs(), self.n_inputs()))
 
 ``ExternalGreyBoxModel`` implements a "stateful" model of these functions.
-We set inputs or Lagrange multipliers with one of the `set_*` methods,
+We set inputs or Lagrange multipliers with one of the ``set_*`` methods,
 then use these values for any subsequent calculations. The work of actually
 evaluating the functions may be performed at the time the inputs are set
 or the time the outputs are evaluated, depending on what is convenient
 for the target application.
 
-Some additional notes on the above:
+Below are some additional notes on the above implementation.
+For the full documentation of these methods, please see the
+:class:`ExternalGreyBoxModel class documentation<pyomo.contrib.pynumero.interfaces.external_grey_box.ExternalGreyBoxModel>`.
 
-- Note that ``input_names`` and ``output_names`` are required to be implemented
-  in derived classes. The ``n_inputs`` and ``n_outputs`` methods use the lists
-  returned by the ``*_name`` methods.
-- The Jacobian and Hessian matrices should contain entries for all matrices that
-  *can possibly* be nonzero. These sparsity structures are assumed to not change
-  between different evaluations.
-- The ``evaluate_hessian_equality_constraints`` and ``evaluate_hessian_outputs`` methods are
-  misnamed. Instead of returning the second-derivative tensors of the vector-valued
-  :math:`F` and :math:`G` functions, they return the term in the Hessian of the
-  Lagrangian corresponding to these functions. That is, they return the sum of the
-  Hessians of the individual output (or equality constraint) coordinates, weighted
-  by the Lagrange multiplier of that output. That is, the
-  ``evaluate_hessian_outputs`` method returns:
+``*_names`` methods
+"""""""""""""""""""
+
+``input_names`` **must** be implemented by the derived class.
+``output_names`` and ``equality_constraint_names`` must be implemented
+if the respective functions are implemented.
+
+.. warning::
+
+   If you intend to include outputs (or equality constraints) and do not
+   implement ``output_names`` (or ``equality_constraint_names``), the
+   corresponding constraints will not be sent to the solver.
+
+Sparsity structures
+"""""""""""""""""""
+
+The Jacobian and Hessian matrices should contain entries for all matrices that
+*can possibly* be nonzero. These sparsity structures are assumed to not change
+between different evaluations.
+
+Hessian methods
+"""""""""""""""
+
+.. note::
+
+   As many solvers use (or *can* use) approximate Hessian information,
+   the Hessian methods are optional.
+
+.. warning::
+
+   Be careful to implement a grey box model that conforms to the requirements
+   of the solver you plan to use. If you do not implement Hessian methods and
+   use a solver that requires them, then depending on the solver interface the
+   Hessian may be interpreted as exactly zero. This can cause convergence
+   failures.
+
+``evaluate_hessian_equality_constraints`` and ``evaluate_hessian_outputs`` are
+misnomers. Instead of returning the second derivative tensors of the vector-valued
+:math:`F` and :math:`G` functions, they return the term in the Hessian of the
+Lagrangian corresponding to these functions. That is, they return the sum of the
+Hessians of the individual output (or equality constraint) coordinates, weighted
+by the Lagrange multiplier of that output. That is, the
+``evaluate_hessian_outputs`` method returns
 
 .. math::
 
    \sum_{i=1}^{n_y} \lambda_{F,i}\nabla^2 F_i
 
-For the full documentation of these methods, please see the
-:class:`ExternalGreyBoxModel class documentation<pyomo.contrib.pynumero.interfaces.external_grey_box.ExternalGreyBoxModel>`.
+and the ``evaluate_hessian_equality_constraints`` method returns
+
+.. math::
+
+   \sum_{i=1}^{n_{\mathrm{eq}}} \lambda_{G,i}\nabla^2 G_i .
+
+Here, :math:`\lambda_{F,i}` and :math:`\lambda_{G,i}` are the Lagrange multipliers
+of the $i$-th coordinates of the :math:`y = F(x)` constraint and :math:`G(x) = 0`
+constraints.
 
 Step 2: Construct an ``ExternalGreyBoxBlock``
 ---------------------------------------------
@@ -203,12 +242,91 @@ it into an optimization problem. First, we create a Pyomo model:
 
    >>> m = pyo.ConcreteModel()
 
-When adding the external function to the model, we have the choice between
-adding the input and output variables ourselves, or letting the ``ExternalGreyBoxBlock``
-add them for us automatically. If we let the grey box block add the
-variables, we will need to appropriately link them with the rest of the model.
-Here, we will define our own input variables, but let the grey box block define
-the output variable for us.
+Then, we add an ``ExternalGreyBoxBlock`` to the model:
+
+.. doctest::
+   :skipif: not numpy_available or not scipy_available or not asl_available
+
+   >>> m.gb = ExternalGreyBoxBlock()
+
+This is a custom ``Block`` that will contain our external functions
+and their inputs and outputs. For now, it is empty:
+
+.. doctest::
+   :skipif: not numpy_available or not scipy_available or not asl_available
+
+   >>> m.gb.pprint()
+   gb : Size=1, Index=None, Active=True
+       0 Declarations:
+
+To populate the grey box block, we must tell it what ``ExternalGreyBoxModel``
+to use and, optionally, what variables to use as the inputs and outputs.
+If we don't specify variables for the inputs and outputs, they will be
+created for us automatically. Here, we will use existing variables for the
+inputs, but will let the outputs be created by the grey box block:
+
+.. doctest::
+   :skipif: not numpy_available or not scipy_available or not asl_available
+
+   >>> m.x = pyo.Var(range(3), initialize=1.0, bounds=(0, None))
+   >>> m.gb.set_external_model(MyGreyBox(), inputs=m.x)
+
+The ``inputs`` argument accepts anything that can be converted to a
+:func:`Reference<Reference>`. This is most commonly a list of ``VarData`` or an
+``IndexedVar``. If you already have your own output variables, you can
+set them with the ``outputs`` argument.
+
+We can now access the input and output variables on the grey box block:
+
+.. doctest::
+   :skipif: not numpy_available or not scipy_available or not asl_available
+
+   >>> m.gb.inputs.pprint()
+   inputs : Size=3, Index={0, 1, 2}, ReferenceTo=x
+       Key : Lower : Value : Upper : Fixed : Stale : Domain
+         0 :     0 :   1.0 :  None : False : False :  Reals
+         1 :     0 :   1.0 :  None : False : False :  Reals
+         2 :     0 :   1.0 :  None : False : False :  Reals
+   >>> m.gb.outputs.pprint()
+   outputs : Size=1, Index=gb._output_names_set
+       Key : Lower : Value : Upper : Fixed : Stale : Domain
+         y :  None :  None :  None : False :  True :  Reals
+
+Note that, in this case, inputs are indexed by the same set as our original
+variable while outputs are indexed by the names we defined in our grey box model.
+
+Now we can define any additional constraints (or objective) that use the output
+variables added by the grey box block:
+
+.. doctest::
+   :skipif: not numpy_available or not scipy_available or not asl_available
+
+   >>> y = m.gb.outputs["y"]
+   >>> y.setlb(0)
+   >>> y.pprint()
+   {Member of outputs} : Size=1, Index=gb._output_names_set
+    Key : Lower : Value : Upper : Fixed : Stale : Domain
+      y :     0 :  None :  None : False :  True :  Reals
+   >>> m.objective = pyo.Objective(expr=y**2 + 2*m.x[0]**2 + 3*m.x[1]**2 + 4*m.x[2]**2)
 
 Step 3: Solve the model with CyIpopt
 ------------------------------------
+
+We are finally ready to solve the model. This must be done by a solver that
+supports ``ExternalGreyBoxBlock`` modeling components, such as CyIpopt.
+
+.. doctest::
+   :skipif: not numpy_available or not scipy_available or not asl_available
+
+   >>> result = pyo.SolverFactory("cyipopt").solve(m, tee=True)
+   >>> pyo.assert_optimal_termination(result)
+   >>> m.x.pprint()               # doctest: +SKIP
+   x : Size=3, Index={0, 1, 2}
+    Key : Lower : Value              : Upper : Fixed : Stale : Domain
+      0 :     0 : 1.7190214676671651 :  None : False : False :  Reals
+      1 :     0 : 1.3540065752008716 :  None : False : False :  Reals
+      2 :     0 : 1.8461098691681073 :  None : False : False :  Reals
+   >>> m.gb.outputs["y"].pprint() # doctest: +SKIP
+   {Member of outputs} : Size=1, Index=gb._output_names_set
+    Key : Lower : Value             : Upper : Fixed : Stale : Domain
+      y :  None : 3.872911598499058 :  None : False : False :  Reals
