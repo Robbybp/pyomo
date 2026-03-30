@@ -7,20 +7,6 @@
 # software.  This software is distributed under the 3-clause BSD License.
 # ____________________________________________________________________________________
 
-import logging
-
-from pyomo.common.deprecation import RenamedClass
-from pyomo.common.log import is_debug_set
-from pyomo.common.timing import ConstructionTimer
-from pyomo.core.base import Var, Set
-from pyomo.core.base.block import BlockData, Block
-from pyomo.core.base.global_set import UnindexedComponent_index
-from pyomo.core.base.initializer import Initializer
-from pyomo.core.base.set import UnindexedComponent_set
-from pyomo.core.base.reference import Reference
-
-logger = logging.getLogger('pyomo.contrib.pynumero')
-
 """
 This module is used for interfacing an external model as
 a block in a Pyomo model.
@@ -34,12 +20,11 @@ This allows one to interface external codes (e.g., compiled
 external models) with a Pyomo model.
 
 Note: To solve a Pyomo model that contains these external models
-      we have a specialized interface built on PyNumero that provides
-      an interface to the CyIpopt solver.
+we have a specialized interface built on PyNumero that provides
+an interface to the CyIpopt solver.
 
-constraints: c(x) = 0
-outputs: y = c(x)
-
+- constraints: :math:`c(x) = 0`
+- outputs: :math:`y = c(x)`
 
 To use this interface:
    * Create a class that is derived from ExternalGreyBoxModel and
@@ -47,15 +32,15 @@ To use this interface:
      a list of names for: the inputs to your model, the equality constraints
      (or residuals) that need to be converged, and any outputs that
      are computed from your model. It will also need to provide methods to
-     compute the residuals, outputs, and the jacobian of these with respect to
-     the inputs. Implement the methods to evaluate hessians if applicable.
+     compute the residuals, outputs, and the Jacobian of these with respect to
+     the inputs. Implement the methods to evaluate Hessians if applicable.
      See the documentation on ExternalGreyBoxModel for more details.
 
    * Create a Pyomo model and make use of the ExternalGreyBoxBlock
      to produce a Pyomo modeling component that represents your
      external model. This block is a Pyomo component, and when you
      call set_external_model() and provide an instance of your derived
-     ExternalGreyBoxModel, it will automatically create pyomo variables to
+     ExternalGreyBoxModel, it will automatically create Pyomo variables to
      represent the inputs and the outputs from the external model. You
      can implement a callback to modify the Pyomo block after it is
      constructed. This also provides a mechanism to initialize variables,
@@ -72,12 +57,27 @@ of the use of this interface.
 
 Note:
 
-   * Currently, you cannot "fix" a pyomo variable that corresponds to an
+   * Currently, you cannot "fix" a Pyomo variable that corresponds to an
      input or output and you must use a constraint instead (this is
      because Pyomo removes fixed variables before sending them to the
      solver)
 
 """
+
+
+import logging
+
+from pyomo.common.deprecation import RenamedClass
+from pyomo.common.log import is_debug_set
+from pyomo.common.timing import ConstructionTimer
+from pyomo.core.base import Var, Set
+from pyomo.core.base.block import BlockData, Block
+from pyomo.core.base.global_set import UnindexedComponent_index
+from pyomo.core.base.initializer import Initializer
+from pyomo.core.base.set import UnindexedComponent_set
+from pyomo.core.base.reference import Reference
+
+logger = logging.getLogger('pyomo.contrib.pynumero')
 
 
 class ExternalGreyBoxModel:
