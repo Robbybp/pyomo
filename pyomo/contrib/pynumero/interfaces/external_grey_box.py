@@ -93,37 +93,48 @@ class ExternalGreyBoxModel:
     methods that are not implemented in the base class that may need
     to be implemented to provide support for certain features.
 
-    Hessian support:
+    Hessian support
+    ---------------
 
     If you would like to support Hessian computations for your
     external model, you will need to implement the following methods to
     support setting the multipliers that are used when computing the
     Hessian of the Lagrangian.
+
     - set_equality_constraint_multipliers: see documentation in method
     - set_output_constraint_multipliers: see documentation in method
+
     You will also need to implement the following methods to evaluate
     the required Hessian information:
 
-    def evaluate_hessian_equality_constraints(self):
+    ``evaluate_hessian_equality_constraints()``
         Compute the product of the equality constraint multipliers
-        with the hessian of the equality constraints.
-        E.g., y_eq^k is the vector of equality constraint multipliers
-        from set_equality_constraint_multipliers, w_eq(u)=0 are the
-        equality constraints, and u^k are the vector of inputs from
-        set_inputs. This method must return
-        H_eq^k = sum_i (y_eq^k)_i * grad^2_{uu} w_eq(u^k)
+        with the Hessian of the equality constraints. Let
+        :math:`y_{eq}^k` be the vector of equality constraint multipliers
+        from ``set_equality_constraint_multipliers()``,
+        :math:`w_{eq}(u) = 0` be the equality constraints, and
+        :math:`u^k` be the vector of inputs from ``set_input_values()``.
+        This method must return:
 
-    def evaluate_hessian_outputs(self):
+        .. math::
+
+           H_{eq}^k = \sum_i \left(y_{eq}^k\right)_i \nabla^2_{uu} w_{eq}(u^k)
+
+    ``evaluate_hessian_outputs()``
         Compute the product of the output constraint multipliers with the
-        hessian of the outputs. E.g., y_o^k is the vector of output
-        constraint multipliers from set_output_constraint_multipliers,
-        u^k are the vector of inputs from set_inputs, and w_o(u) is the
-        function that computes the vector of outputs at the values for
-        the input variables. This method must return
-        H_o^k = sum_i (y_o^k)_i * grad^2_{uu} w_o(u^k)
+        Hessian of the outputs. Let :math:`y_o^k` be the vector of output
+        constraint multipliers from
+        ``set_output_constraint_multipliers()``, :math:`u^k` be the vector
+        of inputs from ``set_input_values()``, and :math:`w_o(u)` be the
+        function that computes the vector of outputs at the current input
+        values. This method must return:
 
-    def evaluate_hessian_objective(self):
-        Compute the hessian of the objective
+        .. math::
+
+           H_o^k = \sum_i \left(y_o^k\right)_i \nabla^2_{uu} w_o(u^k)
+
+    ``evaluate_hessian_objective()``
+        Compute the Hessian of the objective.
 
     Examples that show Hessian support are also found in:
     pyomo/contrib/pynumero/examples/external_grey_box/react-example/
