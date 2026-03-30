@@ -228,7 +228,7 @@ and the ``evaluate_hessian_equality_constraints`` method returns
    \sum_{i=1}^{n_{\mathrm{eq}}} \lambda_{G,i}\nabla^2 G_i .
 
 Here, :math:`\lambda_{F,i}` and :math:`\lambda_{G,i}` are the Lagrange multipliers
-of the $i$-th coordinates of the :math:`y = F(x)` constraint and :math:`G(x) = 0`
+of the :math:`i`-th coordinates of the :math:`y = F(x)` constraint and :math:`G(x) = 0`
 constraints.
 
 Step 2: Construct an ``ExternalGreyBoxBlock``
