@@ -23,8 +23,8 @@ Note: To solve a Pyomo model that contains these external models
 we have a specialized interface built on PyNumero that provides
 an interface to the CyIpopt solver.
 
-- constraints: :math:`c(x) = 0`
-- outputs: :math:`y = c(x)`
+- outputs: :math:`y = F(x)`
+- constraints: :math:`G(x) = 0`
 
 To use this interface:
    * Create a class that is derived from ExternalGreyBoxModel and
@@ -93,6 +93,17 @@ class ExternalGreyBoxModel:
     methods that are not implemented in the base class that may need
     to be implemented to provide support for certain features.
 
+    Notation
+    ^^^^^^^^
+    We refer to the following "external constraints":
+
+    - Output constraints: :math:`y = F(x)`, with dimension :math:`n_y` and 
+      multipliers :math:`\lambda_F`
+    - Equality constraints: :math:`G(x) = 0`, with dimension :math:`n_{\mathrm{eq}}
+      and multipliers :math:`\lambda_G`
+
+    Here, :math:`x` are our inputs and :math:`y` are our outputs.
+
     Hessian support
     ^^^^^^^^^^^^^^^
 
@@ -109,29 +120,21 @@ class ExternalGreyBoxModel:
 
     ``evaluate_hessian_equality_constraints()``
         Compute the product of the equality constraint multipliers
-        with the Hessian of the equality constraints. Let
-        :math:`y_{eq}^k` be the vector of equality constraint multipliers
-        from ``set_equality_constraint_multipliers()``,
-        :math:`w_{eq}(u) = 0` be the equality constraints, and
-        :math:`u^k` be the vector of inputs from ``set_input_values()``.
+        with the Hessian of the equality constraints.
         This method must return:
 
         .. math::
 
-           H_{eq}^k = \sum_i \left(y_{eq}^k\right)_i \nabla^2_{uu} w_{eq}(u^k)
+           \nabla^2\mathcal{L}_G = \sum_{i=1}^{n_{\mathrm{eq}}} \lambda_{G,i} \nabla^2 G_i(x)
 
     ``evaluate_hessian_outputs()``
         Compute the product of the output constraint multipliers with the
-        Hessian of the outputs. Let :math:`y_o^k` be the vector of output
-        constraint multipliers from
-        ``set_output_constraint_multipliers()``, :math:`u^k` be the vector
-        of inputs from ``set_input_values()``, and :math:`w_o(u)` be the
-        function that computes the vector of outputs at the current input
-        values. This method must return:
+        Hessian of the outputs.
+        This method must return:
 
         .. math::
 
-           H_o^k = \sum_i \left(y_o^k\right)_i \nabla^2_{uu} w_o(u^k)
+           \nabla^2\mathcal{L}_F = \sum_{i=1}^{n_y} \lambda_{F,i} \nabla^2 F_i(x)
 
     ``evaluate_hessian_objective()``
         Compute the Hessian of the objective.
