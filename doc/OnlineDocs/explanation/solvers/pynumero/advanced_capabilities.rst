@@ -16,5 +16,6 @@ optimization.
 Advanced tutorials:
 
 .. toctree::
+   :maxdepth: 1
 
    tutorial.grey_box.rst
