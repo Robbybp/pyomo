@@ -81,7 +81,7 @@ logger = logging.getLogger('pyomo.contrib.pynumero')
 
 
 class ExternalGreyBoxModel:
-    """
+    r"""
     This is the base class for building external input output models
     for use with Pyomo and CyIpopt. See the module documentation above,
     and documentation of individual methods.
@@ -94,15 +94,15 @@ class ExternalGreyBoxModel:
     to be implemented to provide support for certain features.
 
     Hessian support
-    ---------------
+    ^^^^^^^^^^^^^^^
 
     If you would like to support Hessian computations for your
     external model, you will need to implement the following methods to
     support setting the multipliers that are used when computing the
     Hessian of the Lagrangian.
 
-    - set_equality_constraint_multipliers: see documentation in method
-    - set_output_constraint_multipliers: see documentation in method
+    - :meth:`set_equality_constraint_multipliers`: see documentation in method
+    - :meth:`set_output_constraint_multipliers`: see documentation in method
 
     You will also need to implement the following methods to evaluate
     the required Hessian information:
