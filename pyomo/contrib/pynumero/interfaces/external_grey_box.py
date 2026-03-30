@@ -19,9 +19,9 @@ of the constraints (or outputs) and their derivatives.
 This allows one to interface external codes (e.g., compiled
 external models) with a Pyomo model.
 
-Note: To solve a Pyomo model that contains these external models
-we have a specialized interface built on PyNumero that provides
-an interface to the CyIpopt solver.
+.. note::
+    To solve a Pyomo model that contains these external models,
+    you must use the PyNumero interface to the CyIpopt solver.
 
 - outputs: :math:`y = F(x)`
 - constraints: :math:`G(x) = 0`
@@ -55,12 +55,10 @@ To use this interface:
 See pyomo/contrib/pynumero/examples/external_grey_box for examples
 of the use of this interface.
 
-Note:
-
-   * Currently, you cannot "fix" a Pyomo variable that corresponds to an
-     input or output and you must use a constraint instead (this is
-     because Pyomo removes fixed variables before sending them to the
-     solver)
+.. note::
+    Currently, you cannot "fix" a Pyomo variable that corresponds to an input
+    or output; you must use a constraint instead. This is because Pyomo removes
+    fixed variables before sending them to the solver.
 
 """
 
@@ -99,7 +97,7 @@ class ExternalGreyBoxModel:
 
     - Output constraints: :math:`y = F(x)`, with dimension :math:`n_y` and 
       multipliers :math:`\lambda_F`
-    - Equality constraints: :math:`G(x) = 0`, with dimension :math:`n_{\mathrm{eq}}
+    - Equality constraints: :math:`G(x) = 0`, with dimension :math:`n_{\mathrm{eq}}`
       and multipliers :math:`\lambda_G`
 
     Here, :math:`x` are our inputs and :math:`y` are our outputs.
@@ -138,6 +136,10 @@ class ExternalGreyBoxModel:
 
     ``evaluate_hessian_objective()``
         Compute the Hessian of the objective.
+
+    .. note::
+        These methods do not accept inputs or Lagrange multipliers as arguments.
+        They must use the values that have been cached by the ``set_*`` methods.
 
     Examples that show Hessian support are also found in:
     pyomo/contrib/pynumero/examples/external_grey_box/react-example/
